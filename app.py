@@ -68,25 +68,25 @@ st.set_page_config(layout="wide", page_title="Universal Link Generator")
 st.title("Universal Link Generator")
 
 # Membuat dua tab utama untuk memisahkan fungsionalitas
-tab1, tab2 = st.tabs([" Serien (Banyak Episode)", "🎬 Konten Tunggal (Film/Episode)"])
+tab1, tab2 = st.tabs([" Bentuk Link Ringkas", "Bentuk Link Drakor"])
 
 
 # --- KONTEN UNTUK TAB 1: MODE SERIAL ---
 with tab1:
-    st.header("Mode Serial: Generator untuk Rangkaian Episode")
-    st.info("Gunakan mode ini untuk membuat daftar link dari satu atau lebih server untuk banyak episode sekaligus (misal: Season 1).")
+    st.header("Mode Bentuk Link Ringkas")
+    st.info("Gunakan mode ini untuk membuat daftar link dari satu atau lebih server untuk banyak episode sekaligus.")
     
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Form Input Serial")
+        st.subheader("Masukan Data Disini")
         with st.form("serial_form", clear_on_submit=True):
             resolutions_serial = st.text_input("Resolusi (pisahkan spasi)", value="480p 720p", key="res_serial")
             start_episode = st.number_input("Mulai dari Episode", min_value=1, step=1, value=1)
             server_name_serial = st.text_input("Nama Server", placeholder="cth: MR", key="server_serial").strip().upper()
-            links_serial = st.text_area("Tempel Link (urut per episode & resolusi)", placeholder="Ep1 480p, Ep1 720p, Ep2 480p, Ep2 720p...", height=150)
+            links_serial = st.text_area("Tempel Link (urut per episode & resolusi)", placeholder="Contoh: Ep1 480p Ep1 720p Ep2 480p Ep2 720p...", height=150)
             
-            submitted_serial = st.form_submit_button("➕ Tambah Server ke Serial")
+            submitted_serial = st.form_submit_button("➕ Tambah Data")
 
             if submitted_serial:
                 links = [x.strip() for x in links_serial.split() if x.strip()]
@@ -108,7 +108,7 @@ with tab1:
                     st.success(f"Server '{server_name_serial}' ditambahkan untuk Episode {start_episode} s/d {start_episode + count - 1}.")
     
     with col2:
-        st.subheader("Hasil Generator Serial")
+        st.subheader("Hasil Generator Data")
         if not st.session_state.serial_data:
             st.write("Belum ada data serial yang ditambahkan.")
         else:
@@ -118,11 +118,11 @@ with tab1:
             
             grouping_style = st.radio("Gaya Urutan:", ['Berdasarkan Server', 'Berdasarkan Resolusi'], horizontal=True, key="style_serial")
             
-            if st.button("🔨 Generate Txt Serial"):
+            if st.button("🔨 BUAT KODE"):
                 resolutions = [res.strip() for res in resolutions_serial.strip().split() if res.strip()]
                 st.session_state.serial_final_txt = generate_serial_output(st.session_state.serial_data, grouping_style, resolutions)
             
-            st.text_area("Output HTML:", value=st.session_state.serial_final_txt, height=200, key="output_serial")
+            st.text_area("Hasil HTML:", value=st.session_state.serial_final_txt, height=200, key="output_serial")
             
             if st.button("🔄 Reset Data Serial"):
                 st.session_state.serial_data = {}
@@ -132,20 +132,20 @@ with tab1:
 
 # --- KONTEN UNTUK TAB 2: MODE KONTEN TUNGGAL ---
 with tab2:
-    st.header("Mode Konten Tunggal: Generator untuk 1 Film/Episode")
-    st.info("Gunakan mode ini untuk membuat daftar link dari banyak server untuk satu konten saja.")
+    st.header("Mode Bentuk Link Drakor")
+    st.info("Gunakan mode ini untuk membuat daftar link seperti berbentuk link drakor.")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Form Input Konten Tunggal")
+        st.subheader("Masukan Data Disini")
         resolutions_single = st.text_input("Daftar Resolusi (pisahkan spasi)", value="360p 540p 720p 1080p", key="res_single")
         resolutions = [r.strip() for r in resolutions_single.strip().split() if r.strip()]
         
-        server_name_single = st.text_input("Nama Server", placeholder="cth: TeraBox", key="server_single")
+        server_name_single = st.text_input("Nama Server", placeholder="contoh: TeraBox", key="server_single")
         links_single = st.text_area(f"Link untuk '{server_name_single or '...'}'", placeholder=f"Tempel {len(resolutions)} link di sini, satu per baris, sesuai urutan resolusi.", height=150)
 
-        if st.button("➕ Tambah Server", type="primary"):
+        if st.button("➕ Tambah Data", type="primary"):
             links = [l.strip() for l in links_single.strip().splitlines() if l.strip()]
             if not server_name_single:
                 st.warning("Nama server tidak boleh kosong.")
@@ -167,7 +167,7 @@ with tab2:
             st.rerun()
 
     with col2:
-        st.subheader("Hasil Generator Konten Tunggal")
+        st.subheader("Hasil Generator Data")
         if not st.session_state.single_server_order:
             st.write("Belum ada server yang ditambahkan.")
         else:

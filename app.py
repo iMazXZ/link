@@ -11,8 +11,12 @@ from firebase_admin import credentials, firestore
 @st.cache_resource
 def initialize_firebase():
     try:
-        # Mengambil kredensial dari Streamlit Secrets dan secara eksplisit mengubahnya menjadi dict
+        # Mengambil kredensial dari Streamlit Secrets
         creds_dict = dict(st.secrets["firebase_credentials"])
+        
+        # PERBAIKAN: Mengganti literal '\n' dengan karakter newline yang sebenarnya
+        creds_dict["private_key"] = creds_dict["private_key"].replace('\\n', '\n')
+        
         cred = credentials.Certificate(creds_dict)
         firebase_admin.initialize_app(cred)
         print("Firebase Initialized.")

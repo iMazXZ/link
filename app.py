@@ -11,8 +11,8 @@ from firebase_admin import credentials, firestore
 @st.cache_resource
 def initialize_firebase():
     try:
-        # Mengambil kredensial dari Streamlit Secrets
-        creds_dict = st.secrets["firebase_credentials"]
+        # Mengambil kredensial dari Streamlit Secrets dan secara eksplisit mengubahnya menjadi dict
+        creds_dict = dict(st.secrets["firebase_credentials"])
         cred = credentials.Certificate(creds_dict)
         firebase_admin.initialize_app(cred)
         print("Firebase Initialized.")
@@ -32,19 +32,22 @@ db = initialize_firebase()
 # Fungsi dari Skrip #1 (Mode Serial)
 def generate_serial_output(episodes_data, grouping_style, resolutions):
     txt_lines = []
-    for ep_num in sorted(episodes_data.keys()):
+    # Mengonversi key episode ke integer untuk sorting yang benar
+    sorted_keys = sorted([int(k) for k in episodes_data.keys()])
+    for ep_num in sorted_keys:
+        ep_num_str = str(ep_num) # Gunakan string lagi untuk akses dictionary
         links = []
         if "Server" in grouping_style:
-            for server in sorted(episodes_data[ep_num].keys()):
+            for server in sorted(episodes_data[ep_num_str].keys()):
                 for res in resolutions:
-                    if res in episodes_data[ep_num][server]:
-                        link = episodes_data[ep_num][server][res]
+                    if res in episodes_data[ep_num_str][server]:
+                        link = episodes_data[ep_num_str][server][res]
                         links.append(f'<a href="{link["url"]}" rel="nofollow" data-wpel-link="external">{link["label"]}</a>')
         elif "Resolusi" in grouping_style:
             for res in resolutions:
-                for server in sorted(episodes_data[ep_num].keys()):
-                    if res in episodes_data[ep_num][server]:
-                        link = episodes_data[ep_num][server][res]
+                for server in sorted(episodes_data[ep_num_str].keys()):
+                    if res in episodes_data[ep_num_str][server]:
+                        link = episodes_data[ep_num_str][server][res]
                         links.append(f'<a href="{link["url"]}" rel="nofollow" data-wpel-link="external">{link["label"]}</a>')
         txt_lines.append(f'<li><strong>EPISODE {ep_num}</strong> {" ".join(links)}</li>')
     return "\n".join(txt_lines)

@@ -187,7 +187,7 @@ with tab2:
     st.header("Mode Bentuk Link Drakor")
     st.info("Gunakan mode ini untuk membuat daftar link dengan format Drakor untuk satu episode.")
 
-    if st.session_state.reset_single:
+    if st.session_state.get('reset_single', False):
         st.session_state.update({
             "sb_server_single": SERVER_OPTIONS[0],
             "txt_server_single": "",
@@ -210,11 +210,11 @@ with tab2:
 
         # Input server dengan Selectbox atau Manual
         server_choice_single = st.selectbox("Pilih Nama Server", options=SERVER_OPTIONS, key="sb_server_single")
-        server_name_single = ""
+        server_name_single_input = ""
         if server_choice_single == SERVER_OPTIONS[0]: # (Ketik Manual)
-            server_name_single = st.text_input("Nama Server Manual", key="txt_server_single").strip()
+            server_name_single_input = st.text_input("Nama Server Manual", key="txt_server_single").strip()
         else:
-            server_name_single = server_choice_single
+            server_name_single_input = server_choice_single
 
         links_single = st.text_area(
             "Link (1 link per baris sesuai urutan resolusi)",
@@ -226,7 +226,7 @@ with tab2:
             links = [l.strip() for l in links_single.strip().splitlines() if l.strip()]
             if not selected_resolutions:
                 st.warning("Pilih minimal satu resolusi.")
-            elif not server_name_single:
+            elif not server_name_single_input:
                 st.warning("Nama server tidak boleh kosong.")
             elif len(selected_resolutions) != len(links):
                 st.error(f"Jumlah link ({len(links)}) tidak cocok dengan jumlah resolusi yang dipilih ({len(selected_resolutions)}).")
@@ -234,12 +234,12 @@ with tab2:
                 for i, res in enumerate(selected_resolutions):
                     if res not in st.session_state.single_data:
                         st.session_state.single_data[res] = {}
-                    st.session_state.single_data[res][server_name_single] = links[i]
+                    st.session_state.single_data[res][server_name_single_input] = links[i]
 
-                if server_name_single not in st.session_state.single_server_order:
-                    st.session_state.single_server_order.append(server_name_single)
+                if server_name_single_input not in st.session_state.single_server_order:
+                    st.session_state.single_server_order.append(server_name_single_input)
 
-                st.success(f"Server '{server_name_single}' berhasil ditambahkan.")
+                st.success(f"Server '{server_name_single_input}' berhasil ditambahkan.")
                 
                 st.session_state.reset_single = True
                 st.rerun()
@@ -251,29 +251,62 @@ with tab2:
             st.rerun()
 
     with col2:
-        st.subheader("Pengaturan Hasil")
+        st.subheader("Pengaturan & Hasil")
         if not st.session_state.single_data:
             st.write("Belum ada data yang dimasukkan.")
         else:
-            st.markdown("**Atur Urutan Server**")
-            server_list = st.session_state.single_server_order
-            for i, server_name in enumerate(server_list):
-                r_col1, r_col2, r_col3, r_col4 = st.columns([0.7, 0.1, 0.1, 0.1])
-                with r_col1:
-                    st.text_input(label="Server", value=server_name, key=f"server_name_{i}", disabled=True, label_visibility="collapsed")
-                with r_col2:
-                    if st.button("↑", key=f"up_{i}", use_container_width=True, disabled=(i == 0)):
-                        server_list.insert(i - 1, server_list.pop(i)); st.rerun()
-                with r_col3:
-                    if st.button("↓", key=f"down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
-                        server_list.insert(i + 1, server_list.pop(i)); st.rerun()
-                with r_col4:
-                    if st.button("⌦", key=f"del_{i}", use_container_width=True):
-                        server_to_delete = server_list.pop(i)
-                        for res_key in st.session_state.single_data:
-                            if server_to_delete in st.session_state.single_data[res_key]:
-                                del st.session_state.single_data[res_key][server_to_delete]
+            st.markdown("**Daftar & Pengaturan Server**")
+            
+            server_list = list(st.session_state.single_server_order)
+            for i, s_name in enumerate(server_list):
+                # --- Baris Kontrol Utama (di luar expander) ---
+                control_cols = st.columns([0.7, 0.1, 0.1, 0.1])
+                with control_cols[0]:
+                    st.text_input("Server", value=s_name, key=f"single_display_name_{i}", disabled=True, label_visibility="collapsed")
+                with control_cols[1]:
+                    if st.button("↑", key=f"single_up_{i}", use_container_width=True, help="Naikkan urutan", disabled=(i == 0)):
+                        st.session_state.single_server_order.insert(i - 1, st.session_state.single_server_order.pop(i)); st.rerun()
+                with control_cols[2]:
+                    if st.button("↓", key=f"single_down_{i}", use_container_width=True, help="Turunkan urutan", disabled=(i == len(server_list) - 1)):
+                        st.session_state.single_server_order.insert(i + 1, st.session_state.single_server_order.pop(i)); st.rerun()
+                with control_cols[3]:
+                    if st.button("⌦", key=f"single_del_{i}", use_container_width=True, help=f"Hapus server {s_name}"):
+                        server_to_delete = st.session_state.single_server_order.pop(i)
+                        for res_data in st.session_state.single_data.values():
+                            if server_to_delete in res_data:
+                                del res_data[server_to_delete]
                         st.rerun()
+
+                # --- Expander untuk Edit Detail ---
+                with st.expander(f"Edit detail untuk server: {s_name}"):
+                    new_server_name = st.text_input("Edit Nama Server", value=s_name, key=f"single_edit_name_{i}")
+                    st.write("**Edit Link:**")
+
+                    for res in st.session_state.get('res_single', []):
+                        if res in st.session_state.single_data and s_name in st.session_state.single_data[res]:
+                            st.text_input(
+                                label=res, 
+                                value=st.session_state.single_data[res][s_name],
+                                key=f"single_link_edit_{i}_{res}"
+                            )
+                    
+                    if st.button("Simpan Perubahan", key=f"single_save_changes_{i}", use_container_width=True):
+                        # Update Links
+                        for res in st.session_state.get('res_single', []):
+                            link_key = f"single_link_edit_{i}_{res}"
+                            if link_key in st.session_state:
+                                st.session_state.single_data[res][s_name] = st.session_state[link_key]
+
+                        # Update Name
+                        if new_server_name != s_name:
+                            st.session_state.single_server_order[i] = new_server_name
+                            for res_data in st.session_state.single_data.values():
+                                if s_name in res_data:
+                                    res_data[new_server_name] = res_data.pop(s_name)
+                        
+                        st.success(f"Perubahan untuk server '{s_name}' telah disimpan!")
+                        st.rerun()
+            
             st.divider()
 
             if st.button("Generate HTML"):

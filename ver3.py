@@ -1,9 +1,12 @@
 import streamlit as st
 import requests
 import time
+import json
+import base64
+from datetime import datetime
 
 # =============================================================================
-# FUNGSI-FUNGSI HELPER (DIPERBARUI DAN DISATUKAN)
+# FUNGSI-FUNGSI HELPER
 # =============================================================================
 
 def shorten_with_ouo(url, api_key):
@@ -25,7 +28,7 @@ def shorten_with_ouo(url, api_key):
         return url
 
 def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, use_uppercase=True, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format ringkas dengan opsi grouping dan uppercase."""
+    """Menghasilkan output HTML format ringkas."""
     txt_lines = []
     with st.spinner('Memproses link...'):
         for ep_num in episode_range:
@@ -33,14 +36,12 @@ def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_
             
             link_parts = []
             display_server = ""
-            # Logika pengelompokan
             if "Server" in grouping_style:
                 for server in servers:
                     for res in resolutions:
                         if res in data.get(ep_num, {}) and server in data.get(ep_num, {}).get(res, {}):
                             url = data[ep_num][res][server]
-                            if server in shorten_servers:
-                                url = shorten_with_ouo(url, api_key)
+                            if server in shorten_servers: url = shorten_with_ouo(url, api_key)
                             display_server = server.upper() if use_uppercase else server
                             link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server} {res}</a>')
             else: # "Resolusi"
@@ -48,8 +49,7 @@ def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_
                     for server in servers:
                         if res in data.get(ep_num, {}) and server in data.get(ep_num, {}).get(res, {}):
                             url = data[ep_num][res][server]
-                            if server in shorten_servers:
-                                url = shorten_with_ouo(url, api_key)
+                            if server in shorten_servers: url = shorten_with_ouo(url, api_key)
                             display_server = server.upper() if use_uppercase else server
                             link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server} {res}</a>')
 
@@ -58,7 +58,7 @@ def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_
     return "\n".join(txt_lines)
 
 def generate_output_drakor(data, episode_range, resolutions, servers, use_uppercase=True, is_centered=False, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format Drakor (mendukung batch dan single, serta perataan)."""
+    """Menghasilkan output HTML format Drakor."""
     html_lines = []
     style_attr = ' style="text-align: center;"' if is_centered else ''
     
@@ -75,8 +75,7 @@ def generate_output_drakor(data, episode_range, resolutions, servers, use_upperc
                 for server in servers:
                     if server in data.get(ep_num, {}).get(res, {}):
                         url = data[ep_num][res][server]
-                        if server in shorten_servers:
-                            url = shorten_with_ouo(url, api_key)
+                        if server in shorten_servers: url = shorten_with_ouo(url, api_key)
                         display_server = server.upper() if use_uppercase else server
                         link_parts.append(f'<a href="{url}">{display_server}</a>')
                 if link_parts:
@@ -85,18 +84,24 @@ def generate_output_drakor(data, episode_range, resolutions, servers, use_upperc
                     html_lines.append(line)
     return "\n".join(html_lines)
 
-
 # =============================================================================
 # STATE INISIALISASI
 # =============================================================================
 if 'main_data' not in st.session_state:
-    st.session_state.main_data = {} # Struktur: {ep: {res: {server: link}}}
+    st.session_state.main_data = {}
 if 'server_order' not in st.session_state:
     st.session_state.server_order = []
 if 'final_html' not in st.session_state:
     st.session_state.final_html = ""
 if 'reset_form' not in st.session_state:
     st.session_state.reset_form = False
+if 'resolutions' not in st.session_state:
+    st.session_state.resolutions = ["480p", "720p"]
+if 'start_ep' not in st.session_state:
+    st.session_state.start_ep = 1
+if 'end_ep' not in st.session_state:
+    st.session_state.end_ep = 1
+
 
 # =============================================================================
 # UI UTAMA
@@ -105,12 +110,55 @@ if 'reset_form' not in st.session_state:
 st.set_page_config(layout="wide", page_title="Universal Link Generator")
 st.title("Universal Link Generator")
 
-# --- Pengaturan API Key Global ---
+# --- Pengaturan Sidebar ---
 st.sidebar.header("Pengaturan Global")
-ouo_api_key = st.sidebar.text_input("API Key ouo.io", value="8pHuHRq5", type="password", help="Masukkan API Key Anda dari ouo.io untuk menggunakan fitur perpendek link.")
-SERVER_OPTIONS = ["(Ketik Manual)", "Mirrored", "TeraBox", "UpFiles", "BuzzHeav", "AkiraBox", "SendNow", "KrakrnFl", "Vidguard", "StreamHG"]
+ouo_api_key = st.sidebar.text_input("API Key ouo.io", value="8pHuHRq5", type="password", help="Masukkan API Key Anda dari ouo.io.")
 
-# --- Layout Utama ---
+st.sidebar.divider()
+
+# --- Fitur Simpan & Muat Sesi ---
+st.sidebar.header("Simpan & Muat Sesi")
+
+# Tombol Simpan
+if st.sidebar.button("Simpan Sesi Saat Ini"):
+    session_data = {
+        'main_data': st.session_state.main_data,
+        'server_order': st.session_state.server_order,
+        'resolutions': st.session_state.resolutions,
+        'start_ep': st.session_state.start_ep,
+        'end_ep': st.session_state.end_ep,
+    }
+    session_json = json.dumps(session_data, indent=4)
+    b64 = base64.b64encode(session_json.encode()).decode()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    href = f'<a href="data:file/json;base64,{b64}" download="link_generator_session_{timestamp}.json">Unduh File Sesi</a>'
+    st.sidebar.markdown(href, unsafe_allow_html=True)
+    st.sidebar.success("File sesi siap diunduh.")
+
+# Fitur Muat
+uploaded_file = st.sidebar.file_uploader("Muat File Sesi (.json)", type="json")
+if uploaded_file is not None:
+    try:
+        loaded_data = json.load(uploaded_file)
+        # Validasi kunci dasar
+        required_keys = ['main_data', 'server_order', 'resolutions', 'start_ep', 'end_ep']
+        if all(key in loaded_data for key in required_keys):
+            st.session_state.main_data = {int(k): v for k, v in loaded_data['main_data'].items()} # Pastikan key episode adalah integer
+            st.session_state.server_order = loaded_data['server_order']
+            st.session_state.resolutions = loaded_data['resolutions']
+            st.session_state.start_ep = loaded_data['start_ep']
+            st.session_state.end_ep = loaded_data['end_ep']
+            st.session_state.final_html = "" # Reset hasil html
+            st.sidebar.success("Sesi berhasil dimuat!")
+            # Hapus file dari uploader untuk memungkinkan upload ulang file yang sama
+            st.rerun()
+        else:
+            st.sidebar.error("File JSON tidak valid atau tidak memiliki format yang benar.")
+    except Exception as e:
+        st.sidebar.error(f"Gagal memuat file: {e}")
+
+
+SERVER_OPTIONS = ["(Ketik Manual)", "Mirrored", "TeraBox", "UpFiles", "BuzzHeav", "AkiraBox", "SendNow", "KrakrnFl", "Vidguard", "StreamHG"]
 col1, col2 = st.columns(2)
 
 # =============================================================================
@@ -124,14 +172,13 @@ with col1:
 
     input_mode = st.radio("Pilih Mode Input", ["Batch Episode", "Single Link"], horizontal=True, key="input_mode")
     
-    start_ep, end_ep = 1, 1
     if input_mode == "Batch Episode":
         c1, c2 = st.columns(2)
-        start_ep = c1.number_input("Mulai dari Episode", min_value=1, value=1, step=1, key="start_ep")
-        end_ep = c2.number_input("Sampai Episode", min_value=start_ep, value=start_ep, step=1, key="end_ep")
+        st.session_state.start_ep = c1.number_input("Mulai dari Episode", min_value=1, value=st.session_state.start_ep, step=1)
+        st.session_state.end_ep = c2.number_input("Sampai Episode", min_value=st.session_state.start_ep, value=st.session_state.end_ep, step=1)
 
     default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
-    resolutions = st.multiselect("Pilih Resolusi (sesuai urutan link)", options=default_resolutions, default=["480p", "720p"], key="resolutions")
+    st.session_state.resolutions = st.multiselect("Pilih Resolusi (sesuai urutan link)", options=default_resolutions, default=st.session_state.resolutions)
     
     server_choice = st.selectbox("Pilih Nama Server", options=SERVER_OPTIONS, key="sb_server")
     server_name = st.text_input("Nama Server Manual", key="txt_server").strip() if server_choice == SERVER_OPTIONS[0] else server_choice
@@ -140,20 +187,20 @@ with col1:
 
     if st.button("+ Tambah Data", type="primary"):
         links = [link.strip() for link in links_text.splitlines() if link.strip()]
-        num_eps = (end_ep - start_ep) + 1 if input_mode == "Batch Episode" else 1
+        num_eps = (st.session_state.end_ep - st.session_state.start_ep) + 1 if input_mode == "Batch Episode" else 1
         
-        if not all([server_name, links, resolutions]):
+        if not all([server_name, links, st.session_state.resolutions]):
             st.warning("Pastikan Nama Server, Resolusi, dan Link terisi.")
         else:
-            expected_links = num_eps * len(resolutions)
+            expected_links = num_eps * len(st.session_state.resolutions)
             if len(links) != expected_links:
                 st.error(f"Jumlah link tidak sesuai. Diperlukan: {expected_links}, Disediakan: {len(links)}.")
             else:
                 link_idx = 0
-                episode_range = range(start_ep, end_ep + 1) if input_mode == "Batch Episode" else [1]
+                episode_range = range(st.session_state.start_ep, st.session_state.end_ep + 1) if input_mode == "Batch Episode" else [1]
                 for ep in episode_range:
                     if ep not in st.session_state.main_data: st.session_state.main_data[ep] = {}
-                    for res in resolutions:
+                    for res in st.session_state.resolutions:
                         if res not in st.session_state.main_data[ep]: st.session_state.main_data[ep][res] = {}
                         st.session_state.main_data[ep][res][server_name] = links[link_idx]
                         link_idx += 1
@@ -221,11 +268,9 @@ with col2:
                     st.success(f"Perubahan untuk server '{s_name}' telah disimpan!"); st.rerun()
 
         st.divider()
-
         st.subheader("Pilih Format Output")
         output_format = st.radio("Pilih format HTML:", ["Format Drakor", "Format Ringkas"], key="output_format")
         
-        # Opsi kondisional berdasarkan format yang dipilih
         if output_format == "Format Drakor":
             c1, c2 = st.columns(2)
             use_uppercase_drakor = c1.toggle("Server Uppercase", value=True, key="uppercase_drakor_toggle")
@@ -238,20 +283,16 @@ with col2:
         if st.button("🚀 Generate HTML", type="primary"):
             final_html = ""
             active_resolutions = st.session_state.get('resolutions', [])
+            input_mode = st.session_state.get('input_mode')
+            episode_range = [1] if input_mode == "Single Link" else range(st.session_state.start_ep, st.session_state.end_ep + 1)
             
             if output_format == "Format Ringkas":
-                episode_keys = sorted(st.session_state.main_data.keys())
-                episode_range = range(episode_keys[0], episode_keys[-1] + 1)
-                final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, use_uppercase=use_uppercase_ringkas, shorten_servers=servers_to_shorten, api_key=ouo_api_key)
+                final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, use_uppercase_ringkas, servers_to_shorten, ouo_api_key)
             else: # Format Drakor
-                input_mode = st.session_state.get('input_mode')
-                episode_range = [1] if input_mode == "Single Link" else range(st.session_state.start_ep, st.session_state.end_ep + 1)
                 final_html = generate_output_drakor(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase_drakor, is_centered, servers_to_shorten, ouo_api_key)
             
             st.session_state.final_html = final_html
 
         if st.session_state.final_html:
             st.code(st.session_state.final_html, language="html")
-            st.markdown("---")
-            st.markdown("### 👀 Live Preview")
             st.components.v1.html(st.session_state.final_html, height=300, scrolling=True)

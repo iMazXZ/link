@@ -3,7 +3,7 @@ import requests
 import time
 
 # =============================================================================
-# FUNGSI-FUNGSI HELPER
+# FUNGSI-FUNGSI HELPER (DIPERBARUI DAN DISATUKAN)
 # =============================================================================
 
 def shorten_with_ouo(url, api_key):
@@ -24,105 +24,79 @@ def shorten_with_ouo(url, api_key):
         st.error(f"Error koneksi saat menghubungi ouo.io: {e}")
         return url
 
-def generate_serial_output(episodes_data, grouping_style, resolutions, shorten_links=False, api_key=""):
-    """Menghasilkan output HTML untuk link serial."""
+def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, use_uppercase=True, shorten_servers=[], api_key=""):
+    """Menghasilkan output HTML format ringkas dengan opsi grouping dan uppercase."""
     txt_lines = []
     with st.spinner('Memproses link...'):
-        for ep_num in sorted(episodes_data.keys()):
-            links = []
+        for ep_num in episode_range:
+            if ep_num not in data: continue
+            
+            link_parts = []
+            display_server = ""
+            # Logika pengelompokan
             if "Server" in grouping_style:
-                for server in sorted(episodes_data[ep_num].keys()):
+                for server in servers:
                     for res in resolutions:
-                        if res in episodes_data[ep_num][server]:
-                            link_data = episodes_data[ep_num][server][res]
-                            url = link_data["url"]
-                            if shorten_links:
+                        if res in data.get(ep_num, {}) and server in data.get(ep_num, {}).get(res, {}):
+                            url = data[ep_num][res][server]
+                            if server in shorten_servers:
                                 url = shorten_with_ouo(url, api_key)
-                            links.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{link_data["label"]}</a>')
-            elif "Resolusi" in grouping_style:
+                            display_server = server.upper() if use_uppercase else server
+                            link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server} {res}</a>')
+            else: # "Resolusi"
                 for res in resolutions:
-                    for server in sorted(episodes_data[ep_num].keys()):
-                        if res in episodes_data[ep_num][server]:
-                            link_data = episodes_data[ep_num][server][res]
-                            url = link_data["url"]
-                            if shorten_links:
+                    for server in servers:
+                        if res in data.get(ep_num, {}) and server in data.get(ep_num, {}).get(res, {}):
+                            url = data[ep_num][res][server]
+                            if server in shorten_servers:
                                 url = shorten_with_ouo(url, api_key)
-                            links.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{link_data["label"]}</a>')
-            txt_lines.append(f'<li><strong>EPISODE {ep_num}</strong> {" ".join(links)}</li>')
+                            display_server = server.upper() if use_uppercase else server
+                            link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server} {res}</a>')
+
+            if link_parts:
+                txt_lines.append(f'<li><strong>EPISODE {ep_num}</strong> {" ".join(link_parts)}</li>')
     return "\n".join(txt_lines)
 
-def generate_single_output(data, resolutions, servers, servers_to_shorten=[], api_key=""):
-    """Menghasilkan output HTML untuk link format Drakor."""
+def generate_output_drakor(data, episode_range, resolutions, servers, use_uppercase=True, is_centered=False, shorten_servers=[], api_key=""):
+    """Menghasilkan output HTML format Drakor (mendukung batch dan single, serta perataan)."""
     html_lines = []
-    with st.spinner('Memproses dan memperpendek link...'):
-        sorted_resolutions = [res for res in resolutions if res in data]
-        for res in sorted_resolutions:
-            link_parts = []
-            for server in servers:
-                if server in data[res]:
-                    url = data[res][server]
-                    if server in servers_to_shorten:
-                        url = shorten_with_ouo(url, api_key)
-                    link_parts.append(f'<a href="{url}">{server}</a>')
-            if link_parts:
-                links_string = " | ".join(link_parts)
-                line = f'<p style="text-align: center;"><strong>{res} (Hardsub Indo):</strong> {links_string}</p>'
-                html_lines.append(line)
-    return "\n".join(html_lines)
-
-def generate_batch_output(data, episode_range, resolutions, server_order, use_uppercase=True, servers_to_shorten=[], api_key=""):
-    """Menghasilkan output HTML untuk format batch drakor."""
-    html_lines = []
+    style_attr = ' style="text-align: center;"' if is_centered else ''
+    
     with st.spinner('Memproses dan memperpendek link...'):
         for ep_num in episode_range:
-            if ep_num not in data:
-                continue
-            html_lines.append(f'<strong>EPISODE {ep_num}</strong>')
-            sorted_resolutions = [res for res in resolutions if res in data.get(ep_num, {})]
-            for res in sorted_resolutions:
+            if ep_num not in data: continue
+            
+            if len(episode_range) > 1:
+                html_lines.append(f'<p{style_attr}><strong>EPISODE {ep_num}</strong></p>')
+
+            for res in resolutions:
+                if res not in data.get(ep_num, {}): continue
                 link_parts = []
-                for server in server_order:
+                for server in servers:
                     if server in data.get(ep_num, {}).get(res, {}):
                         url = data[ep_num][res][server]
-                        if server in servers_to_shorten:
+                        if server in shorten_servers:
                             url = shorten_with_ouo(url, api_key)
                         display_server = server.upper() if use_uppercase else server
                         link_parts.append(f'<a href="{url}">{display_server}</a>')
                 if link_parts:
                     links_string = " | ".join(link_parts)
-                    line = f'<p>{res} (Hardsub Indo) : {links_string}</p>'
+                    line = f'<p{style_attr}><strong>{res} (Hardsub Indo):</strong> {links_string}</p>'
                     html_lines.append(line)
     return "\n".join(html_lines)
+
 
 # =============================================================================
 # STATE INISIALISASI
 # =============================================================================
-
-# State untuk Tab 1
-if 'serial_data' not in st.session_state:
-    st.session_state.serial_data = {}
-if 'serial_final_txt' not in st.session_state:
-    st.session_state.serial_final_txt = ""
-
-# State untuk Tab 2
-if 'single_data' not in st.session_state:
-    st.session_state.single_data = {}
-if 'single_server_order' not in st.session_state:
-    st.session_state.single_server_order = []
-if 'single_final_html' not in st.session_state:
-    st.session_state.single_final_html = ""
-if 'reset_single' not in st.session_state:
-    st.session_state.reset_single = False
-
-# State untuk Tab 3 (Batch Drakor)
-if 'batch_data' not in st.session_state:
-    st.session_state.batch_data = {}
-if 'batch_server_order' not in st.session_state:
-    st.session_state.batch_server_order = []
-if 'batch_final_html' not in st.session_state:
-    st.session_state.batch_final_html = ""
-if 'reset_batch' not in st.session_state:
-    st.session_state.reset_batch = False
+if 'main_data' not in st.session_state:
+    st.session_state.main_data = {} # Struktur: {ep: {res: {server: link}}}
+if 'server_order' not in st.session_state:
+    st.session_state.server_order = []
+if 'final_html' not in st.session_state:
+    st.session_state.final_html = ""
+if 'reset_form' not in st.session_state:
+    st.session_state.reset_form = False
 
 # =============================================================================
 # UI UTAMA
@@ -134,242 +108,150 @@ st.title("Universal Link Generator")
 # --- Pengaturan API Key Global ---
 st.sidebar.header("Pengaturan Global")
 ouo_api_key = st.sidebar.text_input("API Key ouo.io", value="8pHuHRq5", type="password", help="Masukkan API Key Anda dari ouo.io untuk menggunakan fitur perpendek link.")
-
 SERVER_OPTIONS = ["(Ketik Manual)", "Mirrored", "TeraBox", "UpFiles", "BuzzHeav", "AkiraBox", "SendNow", "KrakrnFl", "Vidguard", "StreamHG"]
-tab1, tab2, tab3 = st.tabs(["Bentuk Link Ringkas", "Bentuk Link Drakor", "Link Batch Drakor"])
+
+# --- Layout Utama ---
+col1, col2 = st.columns(2)
 
 # =============================================================================
-# TAB 1: LINK SERIAL
+# KOLOM KIRI: INPUT DATA
 # =============================================================================
-with tab1:
-    st.header("Mode Bentuk Link Ringkas")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Masukan Data Disini")
-        default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
-        selected_resolutions_serial = st.multiselect("Pilih Resolusi", options=default_resolutions, default=["480p", "720p"], key="res_serial")
-        start_episode = st.number_input("Mulai dari Episode", min_value=1, step=1, value=1)
-        server_name_serial = st.text_input("Nama Server", placeholder="cth: MR", key="server_serial").strip().upper()
-        links_serial = st.text_area("Tempel Link (urut per episode & resolusi)", placeholder="Contoh: Ep1 480p Ep1 720p Ep2 480p Ep2 720p...", height=150)
-        
-        if st.button("+ Tambah Data (Serial)"):
-            links = [x.strip() for x in links_serial.split() if x.strip()]
-            resolutions = selected_resolutions_serial
-            if not server_name_serial or not resolutions or not links:
-                st.warning("Pastikan semua field terisi.")
-            elif len(links) % len(resolutions) != 0:
-                st.error(f"Jumlah link harus kelipatan dari jumlah resolusi ({len(resolutions)}).")
-            else:
-                count = len(links) // len(resolutions)
-                for i in range(count):
-                    ep = start_episode + i
-                    if ep not in st.session_state.serial_data:
-                        st.session_state.serial_data[ep] = {}
-                    st.session_state.serial_data[ep][server_name_serial] = {}
-                    for j, res in enumerate(resolutions):
-                        link_index = i * len(resolutions) + j
-                        st.session_state.serial_data[ep][server_name_serial][res] = {"url": links[link_index], "label": f"{server_name_serial} {res}"}
-                st.success(f"Server '{server_name_serial}' ditambahkan untuk Episode {start_episode} s/d {start_episode + count - 1}.")
+with col1:
+    st.header("1. Input Data")
 
-    with col2:
-        st.subheader("Hasil Generator Data")
-        if st.session_state.get('serial_data'):
-            st.write("**Ringkasan Data:**")
-            st.json(st.session_state.serial_data, expanded=False)
-            st.divider()
-            grouping_style = st.radio("Gaya Urutan:", ['Berdasarkan Server', 'Berdasarkan Resolusi'], horizontal=True, key="style_serial")
-            
-            shorten_serial = st.checkbox("Perpendek link dengan ouo.io", key="shorten_serial")
-            if shorten_serial and not ouo_api_key:
-                st.warning("Masukkan API Key ouo.io di sidebar untuk memperpendek link.")
+    if st.session_state.get('reset_form', False):
+        st.session_state.update({"sb_server": SERVER_OPTIONS[0], "txt_server": "", "links_text": "", "reset_form": False})
 
-            if st.button("Buat Kode"):
-                st.session_state.serial_final_txt = generate_serial_output(
-                    st.session_state.serial_data,
-                    grouping_style,
-                    selected_resolutions_serial,
-                    shorten_links=shorten_serial,
-                    api_key=ouo_api_key
-                )
-            
-            st.text_area("Hasil HTML:", value=st.session_state.serial_final_txt, height=200, key="output_serial")
-            if st.button("Reset Data Serial"):
-                st.session_state.serial_data = {}; st.session_state.serial_final_txt = ""; st.rerun()
-        else:
-            st.write("Belum ada data serial yang ditambahkan.")
-
-
-# =============================================================================
-# TAB 2: LINK DRAKOR
-# =============================================================================
-with tab2:
-    st.header("Mode Bentuk Link Drakor")
-    if st.session_state.get('reset_single', False):
-        st.session_state.update({"sb_server_single": SERVER_OPTIONS[0], "txt_server_single": "", "link_single": "", "reset_single": False})
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Masukkan Data Link")
-        default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
-        selected_resolutions = st.multiselect("Pilih Resolusi (Urutan ini akan digunakan di hasil akhir)", options=default_resolutions, default=["360p", "480p", "540p", "720p"], key="res_single")
-        server_choice_single = st.selectbox("Pilih Nama Server", options=SERVER_OPTIONS, key="sb_server_single")
-        server_name_single_input = st.text_input("Nama Server Manual", key="txt_server_single").strip() if server_choice_single == SERVER_OPTIONS[0] else server_choice_single
-        links_single = st.text_area("Link (1 link per baris sesuai urutan resolusi)", height=150, key="link_single")
-        if st.button("+ Tambah Data", type="primary"):
-            links = [l.strip() for l in links_single.strip().splitlines() if l.strip()]
-            if not selected_resolutions: st.warning("Pilih minimal satu resolusi.")
-            elif not server_name_single_input: st.warning("Nama server tidak boleh kosong.")
-            elif len(selected_resolutions) != len(links): st.error(f"Jumlah link ({len(links)}) tidak cocok dengan jumlah resolusi ({len(selected_resolutions)}).")
-            else:
-                for i, res in enumerate(selected_resolutions):
-                    if res not in st.session_state.single_data: st.session_state.single_data[res] = {}
-                    st.session_state.single_data[res][server_name_single_input] = links[i]
-                if server_name_single_input not in st.session_state.single_server_order: st.session_state.single_server_order.append(server_name_single_input)
-                st.success(f"Server '{server_name_single_input}' berhasil ditambahkan."); st.session_state.reset_single = True; st.rerun()
-        if st.button("Reset Semua Data"): st.session_state.single_data = {}; st.session_state.single_server_order = []; st.session_state.single_final_html = ""; st.rerun()
-
-    with col2:
-        st.subheader("Pengaturan & Hasil")
-        if st.session_state.get('single_data'):
-            st.markdown("**Daftar & Pengaturan Server**")
-            servers_to_shorten_single = []
-            server_list = list(st.session_state.single_server_order)
-            for i, s_name in enumerate(server_list):
-                control_cols = st.columns([0.2, 0.5, 0.1, 0.1, 0.1])
-                with control_cols[0]:
-                    if st.checkbox("ouo.io", key=f"shorten_single_{i}", help=f"Perpendek link untuk {s_name}"):
-                        servers_to_shorten_single.append(s_name)
-                with control_cols[1]:
-                    st.text_input("Server", value=s_name, key=f"single_display_name_{i}", disabled=True, label_visibility="collapsed")
-                with control_cols[2]:
-                    if st.button("↑", key=f"single_up_{i}", use_container_width=True, help="Naikkan urutan", disabled=(i == 0)): st.session_state.single_server_order.insert(i - 1, st.session_state.single_server_order.pop(i)); st.rerun()
-                with control_cols[3]:
-                    if st.button("↓", key=f"single_down_{i}", use_container_width=True, help="Turunkan urutan", disabled=(i == len(server_list) - 1)): st.session_state.single_server_order.insert(i + 1, st.session_state.single_server_order.pop(i)); st.rerun()
-                with control_cols[4]:
-                    if st.button("⌦", key=f"single_del_{i}", use_container_width=True, help=f"Hapus server {s_name}"):
-                        server_to_delete = st.session_state.single_server_order.pop(i)
-                        for res_data in st.session_state.single_data.values():
-                            if server_to_delete in res_data: del res_data[server_to_delete]
-                        st.rerun()
-                with st.expander(f"Edit detail untuk server: {s_name}"):
-                    new_server_name = st.text_input("Edit Nama Server", value=s_name, key=f"single_edit_name_{i}")
-                    st.write("**Edit Link:**")
-                    for res in st.session_state.get('res_single', []):
-                        if res in st.session_state.single_data and s_name in st.session_state.single_data[res]:
-                            st.text_input(label=res, value=st.session_state.single_data[res][s_name], key=f"single_link_edit_{i}_{res}")
-                    if st.button("Simpan Perubahan", key=f"single_save_changes_{i}", use_container_width=True):
-                        for res in st.session_state.get('res_single', []):
-                            if f"single_link_edit_{i}_{res}" in st.session_state: st.session_state.single_data[res][s_name] = st.session_state[f"single_link_edit_{i}_{res}"]
-                        if new_server_name != s_name:
-                            st.session_state.single_server_order[i] = new_server_name
-                            for res_data in st.session_state.single_data.values():
-                                if s_name in res_data: res_data[new_server_name] = res_data.pop(s_name)
-                        st.success(f"Perubahan untuk server '{s_name}' telah disimpan!"); st.rerun()
-            st.divider()
-            
-            if st.button("Generate HTML"):
-                st.session_state.single_final_html = generate_single_output(
-                    st.session_state.single_data, selected_resolutions, st.session_state.single_server_order,
-                    servers_to_shorten=servers_to_shorten_single, api_key=ouo_api_key)
-
-            if st.session_state.single_final_html:
-                st.code(st.session_state.single_final_html, language="html")
-                st.markdown("---"); st.markdown("### Live Preview"); st.components.v1.html(st.session_state.single_final_html, height=300, scrolling=True)
-        else:
-            st.write("Belum ada data yang dimasukkan.")
-
-
-# =============================================================================
-# TAB 3: LINK BATCH DRAKOR
-# =============================================================================
-with tab3:
-    st.header("Mode Link Batch Drakor")
-    if st.session_state.get('reset_batch', False):
-        st.session_state.update({"sb_server_batch": SERVER_OPTIONS[0], "txt_server_batch": "", "batch_links_text": "", "reset_batch": False})
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("1. Atur Episode & Resolusi")
+    input_mode = st.radio("Pilih Mode Input", ["Batch Episode", "Single Link"], horizontal=True, key="input_mode")
+    
+    start_ep, end_ep = 1, 1
+    if input_mode == "Batch Episode":
         c1, c2 = st.columns(2)
-        start_ep = c1.number_input("Mulai dari Episode", min_value=1, value=1, step=1, key="batch_start")
-        end_ep = c2.number_input("Sampai Episode", min_value=start_ep, value=start_ep, step=1, key="batch_end")
-        default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
-        resolutions = st.multiselect("Pilih Resolusi (sesuai urutan link)", options=default_resolutions, default=["480p", "720p"], key="batch_res")
-        st.divider()
-        st.subheader("2. Tambah Server & Link")
-        server_choice_batch = st.selectbox("Pilih Nama Server", options=SERVER_OPTIONS, key="sb_server_batch")
-        server_name = st.text_input("Nama Server Manual", key="txt_server_batch").strip() if server_choice_batch == SERVER_OPTIONS[0] else server_choice_batch
-        links_text = st.text_area("Tempel link untuk server ini (1 link per baris)", placeholder=f"Link Ep{start_ep} {resolutions[0] if resolutions else ''}\n...", key="batch_links_text", height=200)
-        if st.button("+ Tambah Data Batch", type="primary"):
-            links = [link.strip() for link in links_text.splitlines() if link.strip()]
-            num_eps = (end_ep - start_ep) + 1
-            if not all([server_name, links, resolutions, num_eps > 0]): st.warning("Pastikan Nama Server, Resolusi, dan Link terisi dengan benar.")
-            else:
-                expected_links = num_eps * len(resolutions)
-                if len(links) != expected_links: st.error(f"Jumlah link tidak sesuai. Diperlukan: {expected_links}, Disediakan: {len(links)}.")
-                else:
-                    link_idx = 0
-                    for ep in range(start_ep, end_ep + 1):
-                        if ep not in st.session_state.batch_data: st.session_state.batch_data[ep] = {}
-                        for res in resolutions:
-                            if res not in st.session_state.batch_data[ep]: st.session_state.batch_data[ep][res] = {}
-                            st.session_state.batch_data[ep][res][server_name] = links[link_idx]; link_idx += 1
-                    if server_name not in st.session_state.batch_server_order: st.session_state.batch_server_order.append(server_name)
-                    st.success(f"Server '{server_name}' berhasil ditambahkan untuk Episode {start_ep}-{end_ep}!"); st.session_state.reset_batch = True; st.rerun()
-        if st.button("Reset Semua Data Batch"): st.session_state.batch_data = {}; st.session_state.batch_server_order = []; st.session_state.batch_final_html = ""; st.rerun()
+        start_ep = c1.number_input("Mulai dari Episode", min_value=1, value=1, step=1, key="start_ep")
+        end_ep = c2.number_input("Sampai Episode", min_value=start_ep, value=start_ep, step=1, key="end_ep")
 
-    with col2:
-        st.subheader("Pengaturan & Hasil")
-        if st.session_state.get('batch_data'):
-            st.markdown("**Daftar & Pengaturan Server**")
-            servers_to_shorten_batch = []
-            server_list = list(st.session_state.batch_server_order)
-            for i, s_name in enumerate(server_list):
-                control_cols = st.columns([0.2, 0.5, 0.1, 0.1, 0.1])
-                with control_cols[0]:
-                    if st.checkbox("ouo.io", key=f"shorten_batch_{i}", help=f"Perpendek link untuk {s_name}"):
-                        servers_to_shorten_batch.append(s_name)
-                with control_cols[1]:
-                    st.text_input("Server", value=s_name, key=f"display_name_{i}", disabled=True, label_visibility="collapsed")
-                with control_cols[2]:
-                    if st.button("↑", key=f"batch_up_{i}", use_container_width=True, help="Naikkan urutan", disabled=(i == 0)): st.session_state.batch_server_order.insert(i - 1, st.session_state.batch_server_order.pop(i)); st.rerun()
-                with control_cols[3]:
-                    if st.button("↓", key=f"batch_down_{i}", use_container_width=True, help="Turunkan urutan", disabled=(i == len(server_list) - 1)): st.session_state.batch_server_order.insert(i + 1, st.session_state.batch_server_order.pop(i)); st.rerun()
-                with control_cols[4]:
-                    if st.button("⌦", key=f"batch_del_{i}", use_container_width=True, help=f"Hapus server {s_name}"):
-                        server_to_delete = st.session_state.batch_server_order.pop(i)
-                        for ep_data in st.session_state.batch_data.values():
-                            for res_data in ep_data.values():
-                                if server_to_delete in res_data: del res_data[server_to_delete]
-                        st.rerun()
-                with st.expander(f"Edit detail untuk server: {s_name}"):
-                    new_server_name = st.text_input("Edit Nama Server", value=s_name, key=f"edit_name_{i}")
-                    st.write("**Edit Link:**")
-                    for ep_num in range(st.session_state.get('batch_start', 1), st.session_state.get('batch_end', 1) + 1):
-                        for res in st.session_state.get('batch_res', []):
-                            if ep_num in st.session_state.batch_data and res in st.session_state.batch_data[ep_num] and s_name in st.session_state.batch_data[ep_num][res]:
-                                st.text_input(label=f"Ep {ep_num} - {res}", value=st.session_state.batch_data[ep_num][res][s_name], key=f"link_edit_{i}_{ep_num}_{res}")
-                    if st.button("Simpan Perubahan", key=f"save_changes_{i}", use_container_width=True):
-                        for ep_num in range(st.session_state.get('batch_start', 1), st.session_state.get('batch_end', 1) + 1):
-                            for res in st.session_state.get('batch_res', []):
-                                if f"link_edit_{i}_{ep_num}_{res}" in st.session_state: st.session_state.batch_data[ep_num][res][s_name] = st.session_state[f"link_edit_{i}_{ep_num}_{res}"]
-                        if new_server_name != s_name:
-                            st.session_state.batch_server_order[i] = new_server_name
-                            for ep_data in st.session_state.batch_data.values():
-                                for res_data in ep_data.values():
-                                    if s_name in res_data: res_data[new_server_name] = res_data.pop(s_name)
-                        st.success(f"Perubahan untuk server '{s_name}' telah disimpan!"); st.rerun()
-            st.divider()
-            
-            use_uppercase_output = st.toggle("Jadikan nama server uppercase", value=True, key="batch_uppercase_output_toggle")
+    default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
+    resolutions = st.multiselect("Pilih Resolusi (sesuai urutan link)", options=default_resolutions, default=["480p", "720p"], key="resolutions")
+    
+    server_choice = st.selectbox("Pilih Nama Server", options=SERVER_OPTIONS, key="sb_server")
+    server_name = st.text_input("Nama Server Manual", key="txt_server").strip() if server_choice == SERVER_OPTIONS[0] else server_choice
+    
+    links_text = st.text_area("Tempel link untuk server ini (1 link per baris)", key="links_text", height=200)
 
-            if st.button("Generate Batch HTML"):
-                episode_range = range(st.session_state.get('batch_start', 1), st.session_state.get('batch_end', 1) + 1)
-                st.session_state.batch_final_html = generate_batch_output(
-                    st.session_state.batch_data, episode_range, st.session_state.get('batch_res', []),
-                    st.session_state.batch_server_order, use_uppercase=use_uppercase_output,
-                    servers_to_shorten=servers_to_shorten_batch, api_key=ouo_api_key)
-
-            if st.session_state.batch_final_html:
-                st.code(st.session_state.batch_final_html, language="html")
-                st.markdown("---"); st.markdown("### Live Preview"); st.components.v1.html(st.session_state.batch_final_html, height=300, scrolling=True)
+    if st.button("+ Tambah Data", type="primary"):
+        links = [link.strip() for link in links_text.splitlines() if link.strip()]
+        num_eps = (end_ep - start_ep) + 1 if input_mode == "Batch Episode" else 1
+        
+        if not all([server_name, links, resolutions]):
+            st.warning("Pastikan Nama Server, Resolusi, dan Link terisi.")
         else:
-            st.write("Belum ada data batch yang ditambahkan.")
+            expected_links = num_eps * len(resolutions)
+            if len(links) != expected_links:
+                st.error(f"Jumlah link tidak sesuai. Diperlukan: {expected_links}, Disediakan: {len(links)}.")
+            else:
+                link_idx = 0
+                episode_range = range(start_ep, end_ep + 1) if input_mode == "Batch Episode" else [1]
+                for ep in episode_range:
+                    if ep not in st.session_state.main_data: st.session_state.main_data[ep] = {}
+                    for res in resolutions:
+                        if res not in st.session_state.main_data[ep]: st.session_state.main_data[ep][res] = {}
+                        st.session_state.main_data[ep][res][server_name] = links[link_idx]
+                        link_idx += 1
+                
+                if server_name not in st.session_state.server_order:
+                    st.session_state.server_order.append(server_name)
+                
+                st.success(f"Server '{server_name}' berhasil ditambahkan!"); st.session_state.reset_form = True; st.rerun()
+
+    if st.button("🔄 Reset Semua Data & Pengaturan"):
+        st.session_state.main_data = {}; st.session_state.server_order = []; st.session_state.final_html = ""; st.rerun()
+
+# =============================================================================
+# KOLOM KANAN: PENGATURAN & HASIL
+# =============================================================================
+with col2:
+    st.header("2. Pengaturan & Hasil")
+    if not st.session_state.main_data:
+        st.info("Belum ada data yang ditambahkan.")
+    else:
+        st.markdown("**Daftar & Pengaturan Server**")
+        servers_to_shorten = []
+        server_list = list(st.session_state.server_order)
+        for i, s_name in enumerate(server_list):
+            control_cols = st.columns([0.2, 0.5, 0.1, 0.1, 0.1])
+            with control_cols[0]:
+                if st.checkbox("ouo.io", key=f"shorten_{i}", help=f"Perpendek link untuk {s_name}"):
+                    servers_to_shorten.append(s_name)
+            with control_cols[1]:
+                st.text_input("Server", value=s_name, key=f"display_name_{i}", disabled=True, label_visibility="collapsed")
+            with control_cols[2]:
+                if st.button("↑", key=f"up_{i}", use_container_width=True, help="Naikkan urutan", disabled=(i == 0)):
+                    st.session_state.server_order.insert(i - 1, st.session_state.server_order.pop(i)); st.rerun()
+            with control_cols[3]:
+                if st.button("↓", key=f"down_{i}", use_container_width=True, help="Turunkan urutan", disabled=(i == len(server_list) - 1)):
+                    st.session_state.server_order.insert(i + 1, st.session_state.server_order.pop(i)); st.rerun()
+            with control_cols[4]:
+                if st.button("⌦", key=f"del_{i}", use_container_width=True, help=f"Hapus server {s_name}"):
+                    server_to_delete = st.session_state.server_order.pop(i)
+                    for ep_data in st.session_state.main_data.values():
+                        for res_data in ep_data.values():
+                            if server_to_delete in res_data: del res_data[server_to_delete]
+                    st.rerun()
+            with st.expander(f"Edit detail untuk server: {s_name}"):
+                new_server_name = st.text_input("Edit Nama Server", value=s_name, key=f"edit_name_{i}")
+                st.write("**Edit Link:**")
+                for ep_num, res_data in st.session_state.main_data.items():
+                    for res, server_links in res_data.items():
+                        if s_name in server_links:
+                            st.text_input(label=f"Ep {ep_num} - {res}", value=server_links[s_name], key=f"link_edit_{i}_{ep_num}_{res}")
+                
+                if st.button("Simpan Perubahan", key=f"save_changes_{i}", use_container_width=True):
+                    for ep_num, res_data in st.session_state.main_data.items():
+                        for res, server_links in res_data.items():
+                            if s_name in server_links:
+                                link_key = f"link_edit_{i}_{ep_num}_{res}"
+                                if link_key in st.session_state:
+                                    st.session_state.main_data[ep_num][res][s_name] = st.session_state[link_key]
+                    if new_server_name != s_name and new_server_name:
+                        st.session_state.server_order[i] = new_server_name
+                        for ep_data in st.session_state.main_data.values():
+                            for res, res_data_inner in ep_data.items():
+                                if s_name in res_data_inner:
+                                    res_data_inner[new_server_name] = res_data_inner.pop(s_name)
+                    st.success(f"Perubahan untuk server '{s_name}' telah disimpan!"); st.rerun()
+
+        st.divider()
+
+        st.subheader("Pilih Format Output")
+        output_format = st.radio("Pilih format HTML:", ["Format Drakor", "Format Ringkas"], key="output_format")
+        
+        # Opsi kondisional berdasarkan format yang dipilih
+        if output_format == "Format Drakor":
+            c1, c2 = st.columns(2)
+            use_uppercase_drakor = c1.toggle("Server Uppercase", value=True, key="uppercase_drakor_toggle")
+            is_centered = c2.toggle("Rata Tengah", value=False, key="center_align_toggle")
+        else: # Format Ringkas
+            c1, c2 = st.columns(2)
+            grouping_style = c1.radio("Urutkan berdasarkan:", ["Server", "Resolusi"], key="grouping_style")
+            use_uppercase_ringkas = c2.toggle("Server Uppercase", value=True, key="uppercase_ringkas_toggle")
+
+        if st.button("🚀 Generate HTML", type="primary"):
+            final_html = ""
+            active_resolutions = st.session_state.get('resolutions', [])
+            
+            if output_format == "Format Ringkas":
+                episode_keys = sorted(st.session_state.main_data.keys())
+                episode_range = range(episode_keys[0], episode_keys[-1] + 1)
+                final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, use_uppercase=use_uppercase_ringkas, shorten_servers=servers_to_shorten, api_key=ouo_api_key)
+            else: # Format Drakor
+                input_mode = st.session_state.get('input_mode')
+                episode_range = [1] if input_mode == "Single Link" else range(st.session_state.start_ep, st.session_state.end_ep + 1)
+                final_html = generate_output_drakor(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase_drakor, is_centered, servers_to_shorten, ouo_api_key)
+            
+            st.session_state.final_html = final_html
+
+        if st.session_state.final_html:
+            st.code(st.session_state.final_html, language="html")
+            st.markdown("---")
+            st.markdown("### 👀 Live Preview")
+            st.components.v1.html(st.session_state.final_html, height=300, scrolling=True)

@@ -313,7 +313,9 @@ with tab3:
         st.divider()
 
         st.subheader("2. Tambah Server & Link")
-        server_name = st.text_input("Nama Server", placeholder="MIRRORED", key="batch_server_name").strip().upper()
+        server_name_input = st.text_input("Nama Server", placeholder="MIRRORED", key="batch_server_name").strip()
+        use_uppercase = st.toggle("Jadikan nama server uppercase", value=True, key="batch_uppercase_toggle")
+        
         links_text = st.text_area(
             "Tempel link untuk server ini (1 link per baris)",
             placeholder=f"Link Ep{start_ep} {resolutions[0] if resolutions else ''}\nLink Ep{start_ep} {resolutions[1] if len(resolutions)>1 else ''}\n...",
@@ -322,6 +324,11 @@ with tab3:
         )
 
         if st.button("➕ Tambah Data Batch", type="primary"):
+            if use_uppercase:
+                server_name = server_name_input.upper()
+            else:
+                server_name = server_name_input
+
             links = [link.strip() for link in links_text.splitlines() if link.strip()]
             num_eps = (end_ep - start_ep) + 1
             

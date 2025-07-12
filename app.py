@@ -1,10 +1,9 @@
 import streamlit as st
 
 # =============================================================================
-# BAGIAN 1: FUNGSI-FUNGSI HELPER (DARI KEDUA SKRIP)
+# BAGIAN 1: FUNGSI-FUNGSI HELPER
 # =============================================================================
 
-# Fungsi dari Skrip #1 (Mode Serial)
 def generate_serial_output(episodes_data, grouping_style, resolutions):
     txt_lines = []
     for ep_num in sorted(episodes_data.keys()):
@@ -24,11 +23,11 @@ def generate_serial_output(episodes_data, grouping_style, resolutions):
         txt_lines.append(f'<li><strong>EPISODE {ep_num}</strong> {" ".join(links)}</li>')
     return "\n".join(txt_lines)
 
-# Fungsi dari Skrip #2 (Mode Konten Tunggal)
 def generate_single_output(data, resolutions, servers):
     html_lines = []
     for res in resolutions:
-        if res not in data: continue
+        if res not in data:
+            continue
         link_parts = []
         for server in servers:
             if server in data[res]:
@@ -40,9 +39,8 @@ def generate_single_output(data, resolutions, servers):
             html_lines.append(line)
     return "\n".join(html_lines)
 
-
 # =============================================================================
-# BAGIAN 2: INISIALISASI SESSION STATE UNTUK KEDUA MODE
+# BAGIAN 2: STATE INISIALISASI
 # =============================================================================
 
 # State untuk Mode Serial
@@ -59,19 +57,16 @@ if 'single_server_order' not in st.session_state:
 if 'single_final_html' not in st.session_state:
     st.session_state.single_final_html = ""
 
-
 # =============================================================================
-# BAGIAN 3: TAMPILAN UTAMA APLIKASI
+# BAGIAN 3: UI UTAMA
 # =============================================================================
 
 st.set_page_config(layout="wide", page_title="Universal Link Generator")
 st.title("Universal Link Generator")
 
-# Membuat dua tab utama untuk memisahkan fungsionalitas
 tab1, tab2 = st.tabs([" Bentuk Link Ringkas", "Bentuk Link Drakor"])
 
-
-# --- KONTEN UNTUK TAB 1: MODE SERIAL ---
+# --- TAB 1: LINK SERIAL ---
 with tab1:
     st.header("Mode Bentuk Link Ringkas")
     st.info("Gunakan mode ini untuk membuat daftar link dari satu atau lebih server untuk banyak episode sekaligus.")
@@ -130,36 +125,41 @@ with tab1:
                 st.rerun()
 
 
-# --- KONTEN UNTUK TAB 2: MODE KONTEN TUNGGAL ---
+# --- TAB 2: LINK DRAKOR ---
 with tab2:
     st.header("Mode Bentuk Link Drakor")
-    st.info("Gunakan mode ini untuk membuat daftar link seperti berbentuk link drakor.")
+    st.info("Gunakan mode ini untuk membuat daftar link dengan format Drakor berdasarkan resolusi dan server.")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Masukan Data Disini")
-        resolutions_single = st.text_input("Daftar Resolusi (pisahkan spasi)", value="360p 540p 720p 1080p", key="res_single")
-        resolutions = [r.strip() for r in resolutions_single.strip().split() if r.strip()]
-        
+        st.subheader("Masukkan Data Link")
+        default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
+        selected_resolutions = st.multiselect("Pilih Resolusi", options=default_resolutions, default=["360p", "540p", "720p"], key="res_single")
         server_name_single = st.text_input("Nama Server", placeholder="contoh: TeraBox", key="server_single")
-        links_single = st.text_area(f"Link untuk '{server_name_single or '...'}'", placeholder=f"Tempel {len(resolutions)} link di sini, satu per baris, sesuai urutan resolusi.", height=150)
+        links_single = st.text_area("Link (1 link per baris sesuai urutan resolusi)", height=150)
 
         if st.button("➕ Tambah Data", type="primary"):
             links = [l.strip() for l in links_single.strip().splitlines() if l.strip()]
-            if not server_name_single:
+            if not selected_resolutions:
+                st.warning("Pilih minimal satu resolusi.")
+            elif not server_name_single:
                 st.warning("Nama server tidak boleh kosong.")
-            elif len(resolutions) != len(links):
-                st.error(f"Jumlah link ({len(links)}) tidak cocok dengan jumlah resolusi ({len(resolutions)}).")
+            elif len(selected_resolutions) != len(links):
+                st.error(f"Jumlah link ({len(links)}) tidak cocok dengan jumlah resolusi yang dipilih ({len(selected_resolutions)}).")
             else:
-                for i, res in enumerate(resolutions):
+                for res in selected_resolutions:
                     if res not in st.session_state.single_data:
                         st.session_state.single_data[res] = {}
-                    st.session_state.single_data[res][server_name_single] = links[i]
+                    st.session_state.single_data[res][server_name_single] = links[selected_resolutions.index(res)]
+                
                 if server_name_single not in st.session_state.single_server_order:
                     st.session_state.single_server_order.append(server_name_single)
-                st.success(f"Server '{server_name_single}' ditambahkan!")
                 
+                st.success(f"Server '{server_name_single}' berhasil ditambahkan.")
+                st.session_state["server_single"] = ""
+                st.session_state["res_single"] = ["360p", "540p", "720p"]
+
         if st.button("🔄 Reset Data Konten Tunggal"):
             st.session_state.single_data = {}
             st.session_state.single_server_order = []
@@ -167,22 +167,25 @@ with tab2:
             st.rerun()
 
     with col2:
-        st.subheader("Hasil Generator Data")
-        if not st.session_state.single_server_order:
-            st.write("Belum ada server yang ditambahkan.")
+        st.subheader("Hasil HTML")
+        if not st.session_state.single_data:
+            st.write("Belum ada data yang dimasukkan.")
         else:
             st.write("**Urutan Server Ditambahkan:**")
-            st.write(" -> ".join(f"`{s}`" for s in st.session_state.single_server_order))
+            st.write(" → ".join(f"`{s}`" for s in st.session_state.single_server_order))
             st.divider()
-            
+
             if st.button("🚀 Generate HTML"):
                 st.session_state.single_final_html = generate_single_output(
                     st.session_state.single_data,
-                    resolutions,
+                    list(st.session_state.single_data.keys()),
                     st.session_state.single_server_order
                 )
-            
+
             if st.session_state.single_final_html:
                 st.code(st.session_state.single_final_html, language="html")
+                st.markdown("---")
+                st.markdown("### 👀 Live Preview")
+                st.components.v1.html(st.session_state.single_final_html, height=300, scrolling=True)
             else:
-                st.write("Klik 'Generate HTML' untuk melihat hasil.")
+                st.write("Klik tombol 'Generate HTML' untuk melihat hasil.")

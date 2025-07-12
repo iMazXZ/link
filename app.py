@@ -130,7 +130,7 @@ with tab2:
     # ✅ Reset input jika flag aktif
     if st.session_state.get("reset_single"):
         st.session_state["server_single"] = ""
-        st.session_state["res_single"] = ["360p", "540p", "720p"]
+        st.session_state["res_single"] = selected_resolutions
         st.session_state["link_single"] = ""
         st.session_state["reset_single"] = False
 

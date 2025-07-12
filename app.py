@@ -43,13 +43,10 @@ def generate_single_output(data, resolutions, servers):
 # BAGIAN 2: STATE INISIALISASI
 # =============================================================================
 
-# State untuk Mode Serial
 if 'serial_data' not in st.session_state:
     st.session_state.serial_data = {}
 if 'serial_final_txt' not in st.session_state:
     st.session_state.serial_final_txt = ""
-
-# State untuk Mode Konten Tunggal
 if 'single_data' not in st.session_state:
     st.session_state.single_data = {}
 if 'single_server_order' not in st.session_state:
@@ -75,32 +72,30 @@ with tab1:
 
     with col1:
         st.subheader("Masukan Data Disini")
-        with st.form("serial_form", clear_on_submit=True):
-            resolutions_serial = st.text_input("Resolusi (pisahkan spasi)", value="480p 720p", key="res_serial")
-            start_episode = st.number_input("Mulai dari Episode", min_value=1, step=1, value=1)
-            server_name_serial = st.text_input("Nama Server", placeholder="cth: MR", key="server_serial").strip().upper()
-            links_serial = st.text_area("Tempel Link (urut per episode & resolusi)", placeholder="Contoh: Ep1 480p Ep1 720p Ep2 480p Ep2 720p...", height=150)
-            
-            submitted_serial = st.form_submit_button("➕ Tambah Data")
-
-            if submitted_serial:
-                links = [x.strip() for x in links_serial.split() if x.strip()]
-                resolutions = [res.strip() for res in resolutions_serial.strip().split() if res.strip()]
-                if not server_name_serial or not resolutions or not links:
-                    st.warning("Pastikan semua field terisi.")
-                elif len(links) % len(resolutions) != 0:
-                    st.error(f"Jumlah link harus kelipatan dari jumlah resolusi ({len(resolutions)}).")
-                else:
-                    count = len(links) // len(resolutions)
-                    for i in range(count):
-                        ep = start_episode + i
-                        if ep not in st.session_state.serial_data:
-                            st.session_state.serial_data[ep] = {}
-                        st.session_state.serial_data[ep][server_name_serial] = {}
-                        for j, res in enumerate(resolutions):
-                            link_index = i * len(resolutions) + j
-                            st.session_state.serial_data[ep][server_name_serial][res] = {"url": links[link_index], "label": f"{server_name_serial} {res}"}
-                    st.success(f"Server '{server_name_serial}' ditambahkan untuk Episode {start_episode} s/d {start_episode + count - 1}.")
+        default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
+        selected_resolutions_serial = st.multiselect("Pilih Resolusi", options=default_resolutions, default=["480p", "720p"], key="res_serial")
+        start_episode = st.number_input("Mulai dari Episode", min_value=1, step=1, value=1)
+        server_name_serial = st.text_input("Nama Server", placeholder="cth: MR", key="server_serial").strip().upper()
+        links_serial = st.text_area("Tempel Link (urut per episode & resolusi)", placeholder="Contoh: Ep1 480p Ep1 720p Ep2 480p Ep2 720p...", height=150)
+        
+        if st.button("➕ Tambah Data (Serial)"):
+            links = [x.strip() for x in links_serial.split() if x.strip()]
+            resolutions = selected_resolutions_serial
+            if not server_name_serial or not resolutions or not links:
+                st.warning("Pastikan semua field terisi.")
+            elif len(links) % len(resolutions) != 0:
+                st.error(f"Jumlah link harus kelipatan dari jumlah resolusi ({len(resolutions)}).")
+            else:
+                count = len(links) // len(resolutions)
+                for i in range(count):
+                    ep = start_episode + i
+                    if ep not in st.session_state.serial_data:
+                        st.session_state.serial_data[ep] = {}
+                    st.session_state.serial_data[ep][server_name_serial] = {}
+                    for j, res in enumerate(resolutions):
+                        link_index = i * len(resolutions) + j
+                        st.session_state.serial_data[ep][server_name_serial][res] = {"url": links[link_index], "label": f"{server_name_serial} {res}"}
+                st.success(f"Server '{server_name_serial}' ditambahkan untuk Episode {start_episode} s/d {start_episode + count - 1}.")
     
     with col2:
         st.subheader("Hasil Generator Data")
@@ -114,8 +109,11 @@ with tab1:
             grouping_style = st.radio("Gaya Urutan:", ['Berdasarkan Server', 'Berdasarkan Resolusi'], horizontal=True, key="style_serial")
             
             if st.button("🔨 BUAT KODE"):
-                resolutions = [res.strip() for res in resolutions_serial.strip().split() if res.strip()]
-                st.session_state.serial_final_txt = generate_serial_output(st.session_state.serial_data, grouping_style, resolutions)
+                st.session_state.serial_final_txt = generate_serial_output(
+                    st.session_state.serial_data,
+                    grouping_style,
+                    selected_resolutions_serial
+                )
             
             st.text_area("Hasil HTML:", value=st.session_state.serial_final_txt, height=200, key="output_serial")
             
@@ -123,7 +121,6 @@ with tab1:
                 st.session_state.serial_data = {}
                 st.session_state.serial_final_txt = ""
                 st.rerun()
-
 
 # --- TAB 2: LINK DRAKOR ---
 with tab2:

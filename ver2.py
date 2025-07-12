@@ -234,7 +234,7 @@ with tab2:
             servers_to_shorten_single = []
             server_list = list(st.session_state.single_server_order)
             for i, s_name in enumerate(server_list):
-                control_cols = st.columns([0.1, 0.6, 0.1, 0.1, 0.1])
+                control_cols = st.columns([0.2, 0.5, 0.1, 0.1, 0.1])
                 with control_cols[0]:
                     if st.checkbox("ouo", key=f"shorten_single_{i}", help=f"Perpendek link untuk {s_name}"):
                         servers_to_shorten_single.append(s_name)
@@ -323,7 +323,7 @@ with tab3:
             servers_to_shorten_batch = []
             server_list = list(st.session_state.batch_server_order)
             for i, s_name in enumerate(server_list):
-                control_cols = st.columns([0.1, 0.6, 0.1, 0.1, 0.1])
+                control_cols = st.columns([0.2, 0.5, 0.1, 0.1, 0.1])
                 with control_cols[0]:
                     if st.checkbox("ouo", key=f"shorten_batch_{i}", help=f"Perpendek link untuk {s_name}"):
                         servers_to_shorten_batch.append(s_name)

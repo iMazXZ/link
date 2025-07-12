@@ -54,7 +54,7 @@ def generate_batch_output(data, episode_range, resolutions, server_order, use_up
         if ep_num not in data:
             continue
         
-        html_lines.append(f'<strong>Episode {ep_num}</strong>')
+        html_lines.append(f'<strong>EPISODE {ep_num}</strong>')
         
         # Urutkan resolusi sesuai dengan input pengguna
         sorted_resolutions = [res for res in resolutions if res in data.get(ep_num, {})]
@@ -70,7 +70,7 @@ def generate_batch_output(data, episode_range, resolutions, server_order, use_up
             
             if link_parts:
                 links_string = " | ".join(link_parts)
-                line = f'<p>{res} (HARDSUB INDO) : {links_string}</p>'
+                line = f'<p>{res} (Hardsub Indo) : {links_string}</p>'
                 html_lines.append(line)
     
     return "\n".join(html_lines)
@@ -113,6 +113,9 @@ if 'reset_batch' not in st.session_state:
 
 st.set_page_config(layout="wide", page_title="Universal Link Generator")
 st.title("Universal Link Generator")
+
+# Daftar server yang sudah ditentukan
+SERVER_OPTIONS = ["(Ketik Manual)", "Mirrored", "TeraBox", "UpFiles", "BuzzHeav", "AkiraBox", "SendNow", "KrakrnFl", "Vidguard", "StreamHG"]
 
 tab1, tab2, tab3 = st.tabs(["Bentuk Link Ringkas", "Bentuk Link Drakor", "Link Batch Drakor"])
 
@@ -186,7 +189,8 @@ with tab2:
 
     if st.session_state.reset_single:
         st.session_state.update({
-            "server_single": "",
+            "sb_server_single": SERVER_OPTIONS[0],
+            "txt_server_single": "",
             "link_single": "",
             "reset_single": False
         })
@@ -204,11 +208,13 @@ with tab2:
             key="res_single"
         )
 
-        server_name_single = st.text_input(
-            "Nama Server",
-            placeholder="contoh: TeraBox",
-            key="server_single"
-        ).strip()
+        # Input server dengan Selectbox atau Manual
+        server_choice_single = st.selectbox("Pilih Nama Server", options=SERVER_OPTIONS, key="sb_server_single")
+        server_name_single = ""
+        if server_choice_single == SERVER_OPTIONS[0]: # (Ketik Manual)
+            server_name_single = st.text_input("Nama Server Manual", key="txt_server_single").strip()
+        else:
+            server_name_single = server_choice_single
 
         links_single = st.text_area(
             "Link (1 link per baris sesuai urutan resolusi)",
@@ -291,7 +297,8 @@ with tab3:
 
     if st.session_state.get('reset_batch', False):
         st.session_state.update({
-            "batch_server_name": "",
+            "sb_server_batch": SERVER_OPTIONS[0],
+            "txt_server_batch": "",
             "batch_links_text": "",
             "reset_batch": False
         })
@@ -314,8 +321,15 @@ with tab3:
         st.divider()
 
         st.subheader("2. Tambah Server & Link")
-        server_name = st.text_input("Nama Server", placeholder="MIRRORED", key="batch_server_name").strip()
         
+        # Input server dengan Selectbox atau Manual
+        server_choice_batch = st.selectbox("Pilih Nama Server", options=SERVER_OPTIONS, key="sb_server_batch")
+        server_name = ""
+        if server_choice_batch == SERVER_OPTIONS[0]: # (Ketik Manual)
+            server_name = st.text_input("Nama Server Manual", key="txt_server_batch").strip()
+        else:
+            server_name = server_choice_batch
+
         links_text = st.text_area(
             "Tempel link untuk server ini (1 link per baris)",
             placeholder=f"Link Ep{start_ep} {resolutions[0] if resolutions else ''}\nLink Ep{start_ep} {resolutions[1] if len(resolutions)>1 else ''}\n...",

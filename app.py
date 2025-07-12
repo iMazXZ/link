@@ -127,6 +127,13 @@ with tab2:
     st.header("Mode Bentuk Link Drakor")
     st.info("Gunakan mode ini untuk membuat daftar link dengan format Drakor berdasarkan resolusi dan server.")
 
+    # ✅ Reset input jika flag aktif
+    if st.session_state.get("reset_single"):
+        st.session_state["server_single"] = ""
+        st.session_state["res_single"] = ["360p", "540p", "720p"]
+        st.session_state["link_single"] = ""
+        st.session_state["reset_single"] = False
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -136,7 +143,7 @@ with tab2:
         selected_resolutions = st.multiselect(
             "Pilih Resolusi",
             options=default_resolutions,
-            default=["360p", "540p", "720p"],
+            default=["360p", "480p", "540p", "720p"],
             key="res_single"
         )
 
@@ -171,10 +178,9 @@ with tab2:
 
                 st.success(f"Server '{server_name_single}' berhasil ditambahkan.")
 
-                # ✅ RESET aman tanpa error
-                st.session_state["server_single"] = ""
-                st.session_state["res_single"] = ["360p", "540p", "720p"]
-                st.session_state["link_single"] = ""
+                # ✅ Set flag untuk reset input & rerun
+                st.session_state.reset_single = True
+                st.experimental_rerun()
 
         if st.button("🔄 Reset Data Konten Tunggal"):
             st.session_state.single_data = {}

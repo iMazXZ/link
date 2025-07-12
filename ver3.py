@@ -3,7 +3,7 @@ import requests
 import time
 
 # =============================================================================
-# FUNGSI-FUNGSI HELPER
+# FUNGSI-FUNGSI HELPER (DIPERBARUI)
 # =============================================================================
 
 def shorten_with_ouo(url, api_key):
@@ -25,44 +25,43 @@ def shorten_with_ouo(url, api_key):
         return url
 
 def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format ringkas dengan opsi grouping."""
+    """Menghasilkan output HTML format ringkas dengan struktur data baru."""
     txt_lines = []
     with st.spinner('Memproses link...'):
         for ep_num in episode_range:
             if ep_num not in data: continue
             
             link_parts = []
-            # Mengelompokkan berdasarkan Server
             if "Server" in grouping_style:
                 for server in servers:
-                    if server not in data[ep_num]: continue
                     for res in resolutions:
-                        if res in data[ep_num][server]:
-                            url = data[ep_num][server][res]
+                        if res in data.get(ep_num, {}) and server in data.get(ep_num, {}).get(res, {}):
+                            url = data[ep_num][res][server]
                             if server in shorten_servers:
                                 url = shorten_with_ouo(url, api_key)
                             link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{server.upper()} {res}</a>')
-            # Mengelompokkan berdasarkan Resolusi
             else: # "Resolusi"
                 for res in resolutions:
                     for server in servers:
-                        if server in data.get(ep_num, {}) and res in data[ep_num][server]:
-                            url = data[ep_num][server][res]
+                        if res in data.get(ep_num, {}) and server in data.get(ep_num, {}).get(res, {}):
+                            url = data[ep_num][res][server]
                             if server in shorten_servers:
                                 url = shorten_with_ouo(url, api_key)
                             link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{server.upper()} {res}</a>')
 
-            txt_lines.append(f'<li><strong>EPISODE {ep_num}</strong> {" ".join(link_parts)}</li>')
+            if link_parts:
+                txt_lines.append(f'<li><strong>EPISODE {ep_num}</strong> {" ".join(link_parts)}</li>')
     return "\n".join(txt_lines)
 
 def generate_output_drakor_center(data, resolutions, servers, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format drakor center."""
+    """Menghasilkan output HTML format drakor center dengan struktur data baru."""
     html_lines = []
     with st.spinner('Memproses dan memperpendek link...'):
         for res in resolutions:
+            if res not in data: continue
             link_parts = []
             for server in servers:
-                if res in data and server in data[res]:
+                if server in data.get(res, {}):
                     url = data[res][server]
                     if server in shorten_servers:
                         url = shorten_with_ouo(url, api_key)
@@ -74,14 +73,14 @@ def generate_output_drakor_center(data, resolutions, servers, shorten_servers=[]
     return "\n".join(html_lines)
 
 def generate_output_batch_drakor(data, episode_range, resolutions, servers, use_uppercase=True, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format batch drakor."""
+    """Menghasilkan output HTML format batch drakor dengan struktur data baru."""
     html_lines = []
     with st.spinner('Memproses dan memperpendek link...'):
         for ep_num in episode_range:
             if ep_num not in data: continue
             html_lines.append(f'<strong>EPISODE {ep_num}</strong>')
             for res in resolutions:
-                if res not in data[ep_num]: continue
+                if res not in data.get(ep_num, {}): continue
                 link_parts = []
                 for server in servers:
                     if server in data.get(ep_num, {}).get(res, {}):
@@ -100,7 +99,7 @@ def generate_output_batch_drakor(data, episode_range, resolutions, servers, use_
 # STATE INISIALISASI
 # =============================================================================
 if 'main_data' not in st.session_state:
-    st.session_state.main_data = {}
+    st.session_state.main_data = {} # Struktur baru: {ep: {res: {server: link}}}
 if 'server_order' not in st.session_state:
     st.session_state.server_order = []
 if 'final_html' not in st.session_state:
@@ -132,7 +131,6 @@ with col1:
     if st.session_state.get('reset_form', False):
         st.session_state.update({"sb_server": SERVER_OPTIONS[0], "txt_server": "", "links_text": "", "reset_form": False})
 
-    # --- Pilihan Mode Input ---
     input_mode = st.radio("Pilih Mode Input", ["Batch Episode", "Single Link"], horizontal=True, key="input_mode")
     
     start_ep, end_ep = 1, 1
@@ -141,7 +139,6 @@ with col1:
         start_ep = c1.number_input("Mulai dari Episode", min_value=1, value=1, step=1, key="start_ep")
         end_ep = c2.number_input("Sampai Episode", min_value=start_ep, value=start_ep, step=1, key="end_ep")
 
-    # --- Input Umum ---
     default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
     resolutions = st.multiselect("Pilih Resolusi (sesuai urutan link)", options=default_resolutions, default=["480p", "720p"], key="resolutions")
     
@@ -162,13 +159,12 @@ with col1:
                 st.error(f"Jumlah link tidak sesuai. Diperlukan: {expected_links}, Disediakan: {len(links)}.")
             else:
                 link_idx = 0
-                episode_range = range(start_ep, end_ep + 1) if input_mode == "Batch Episode" else [1] # Gunakan [1] sebagai placeholder untuk single link
-
+                episode_range = range(start_ep, end_ep + 1) if input_mode == "Batch Episode" else [1]
                 for ep in episode_range:
                     if ep not in st.session_state.main_data: st.session_state.main_data[ep] = {}
                     for res in resolutions:
-                        if server_name not in st.session_state.main_data[ep]: st.session_state.main_data[ep][server_name] = {}
-                        st.session_state.main_data[ep][server_name][res] = links[link_idx]
+                        if res not in st.session_state.main_data[ep]: st.session_state.main_data[ep][res] = {}
+                        st.session_state.main_data[ep][res][server_name] = links[link_idx]
                         link_idx += 1
                 
                 if server_name not in st.session_state.server_order:
@@ -207,42 +203,34 @@ with col2:
                 if st.button("⌦", key=f"del_{i}", use_container_width=True, help=f"Hapus server {s_name}"):
                     server_to_delete = st.session_state.server_order.pop(i)
                     for ep_data in st.session_state.main_data.values():
-                        if server_to_delete in ep_data: del ep_data[server_to_delete]
+                        for res_data in ep_data.values():
+                            if server_to_delete in res_data: del res_data[server_to_delete]
                     st.rerun()
             with st.expander(f"Edit detail untuk server: {s_name}"):
                 new_server_name = st.text_input("Edit Nama Server", value=s_name, key=f"edit_name_{i}")
                 st.write("**Edit Link:**")
-                # Loop through all episodes and resolutions to find links for this server
-                for ep_num, ep_data in st.session_state.main_data.items():
-                    if s_name in ep_data:
-                        for res, link in ep_data[s_name].items():
-                            st.text_input(
-                                label=f"Ep {ep_num} - {res}", 
-                                value=link,
-                                key=f"link_edit_{i}_{ep_num}_{res}"
-                            )
+                for ep_num, res_data in st.session_state.main_data.items():
+                    for res, server_links in res_data.items():
+                        if s_name in server_links:
+                            st.text_input(label=f"Ep {ep_num} - {res}", value=server_links[s_name], key=f"link_edit_{i}_{ep_num}_{res}")
                 
                 if st.button("Simpan Perubahan", key=f"save_changes_{i}", use_container_width=True):
-                    # Update Links
-                    for ep_num, ep_data in st.session_state.main_data.items():
-                        if s_name in ep_data:
-                            for res in ep_data[s_name]:
+                    for ep_num, res_data in st.session_state.main_data.items():
+                        for res, server_links in res_data.items():
+                            if s_name in server_links:
                                 link_key = f"link_edit_{i}_{ep_num}_{res}"
                                 if link_key in st.session_state:
-                                    st.session_state.main_data[ep_num][s_name][res] = st.session_state[link_key]
-
-                    # Update Name
+                                    st.session_state.main_data[ep_num][res][s_name] = st.session_state[link_key]
                     if new_server_name != s_name:
                         st.session_state.server_order[i] = new_server_name
                         for ep_data in st.session_state.main_data.values():
-                            if s_name in ep_data:
-                                ep_data[new_server_name] = ep_data.pop(s_name)
-                    
+                            for res_data in ep_data.values():
+                                if s_name in res_data:
+                                    res_data[new_server_name] = res_data.pop(s_name)
                     st.success(f"Perubahan untuk server '{s_name}' telah disimpan!"); st.rerun()
 
         st.divider()
 
-        # --- Pilihan Format Output ---
         st.subheader("Pilih Format Output")
         output_format = st.radio(
             "Pilih format HTML yang akan dihasilkan:",
@@ -251,12 +239,11 @@ with col2:
         )
         
         use_uppercase = True
-        grouping_style = "Berdasarkan Server" # Default
+        grouping_style = "Berdasarkan Server"
         if output_format == "Format Batch Drakor (Default)":
             use_uppercase = st.toggle("Jadikan nama server uppercase", value=True, key="uppercase_toggle")
         elif output_format == "Format Ringkas":
             grouping_style = st.radio("Urutkan berdasarkan:", ["Server", "Resolusi"], horizontal=True, key="grouping_style")
-
 
         if st.button("🚀 Generate HTML", type="primary"):
             final_html = ""
@@ -268,12 +255,7 @@ with col2:
                 final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, servers_to_shorten, ouo_api_key)
             elif output_format == "Format Drakor - Center":
                 single_data_for_gen = st.session_state.main_data.get(1, {})
-                formatted_single_data = {}
-                for server, res_links in single_data_for_gen.items():
-                    for res, link in res_links.items():
-                        if res not in formatted_single_data: formatted_single_data[res] = {}
-                        formatted_single_data[res][server] = link
-                final_html = generate_output_drakor_center(formatted_single_data, active_resolutions, st.session_state.server_order, servers_to_shorten, ouo_api_key)
+                final_html = generate_output_drakor_center(single_data_for_gen, active_resolutions, st.session_state.server_order, servers_to_shorten, ouo_api_key)
             else: # "Format Batch Drakor (Default)"
                 final_html = generate_output_batch_drakor(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase, servers_to_shorten, ouo_api_key)
             

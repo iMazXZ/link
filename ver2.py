@@ -9,12 +9,12 @@ import time
 def shorten_with_ouo(url, api_key):
     """Memperpendek URL menggunakan ouo.io API."""
     if not api_key:
-        return url # Kembalikan URL asli jika tidak ada API key
+        st.warning("API Key ouo.io tidak ditemukan. Link tidak diperpendek.", icon="🔑")
+        return url
     try:
         api_url = f'https://ouo.io/api/{api_key}?s={url}'
         response = requests.get(api_url)
         if response.status_code == 200:
-            # Tambahkan jeda singkat untuk menghindari rate limiting dari API
             time.sleep(0.5) 
             return response.text
         else:
@@ -51,7 +51,7 @@ def generate_serial_output(episodes_data, grouping_style, resolutions, shorten_l
             txt_lines.append(f'<li><strong>EPISODE {ep_num}</strong> {" ".join(links)}</li>')
     return "\n".join(txt_lines)
 
-def generate_single_output(data, resolutions, servers, shorten_links=False, api_key=""):
+def generate_single_output(data, resolutions, servers, servers_to_shorten=[], api_key=""):
     """Menghasilkan output HTML untuk link format Drakor."""
     html_lines = []
     with st.spinner('Memproses dan memperpendek link...'):
@@ -61,7 +61,7 @@ def generate_single_output(data, resolutions, servers, shorten_links=False, api_
             for server in servers:
                 if server in data[res]:
                     url = data[res][server]
-                    if shorten_links:
+                    if server in servers_to_shorten:
                         url = shorten_with_ouo(url, api_key)
                     link_parts.append(f'<a href="{url}">{server}</a>')
             if link_parts:
@@ -70,7 +70,7 @@ def generate_single_output(data, resolutions, servers, shorten_links=False, api_
                 html_lines.append(line)
     return "\n".join(html_lines)
 
-def generate_batch_output(data, episode_range, resolutions, server_order, use_uppercase=True, shorten_links=False, api_key=""):
+def generate_batch_output(data, episode_range, resolutions, server_order, use_uppercase=True, servers_to_shorten=[], api_key=""):
     """Menghasilkan output HTML untuk format batch drakor."""
     html_lines = []
     with st.spinner('Memproses dan memperpendek link...'):
@@ -84,7 +84,7 @@ def generate_batch_output(data, episode_range, resolutions, server_order, use_up
                 for server in server_order:
                     if server in data.get(ep_num, {}).get(res, {}):
                         url = data[ep_num][res][server]
-                        if shorten_links:
+                        if server in servers_to_shorten:
                             url = shorten_with_ouo(url, api_key)
                         display_server = server.upper() if use_uppercase else server
                         link_parts.append(f'<a href="{url}">{display_server}</a>')
@@ -231,15 +231,20 @@ with tab2:
         st.subheader("Pengaturan & Hasil")
         if st.session_state.get('single_data'):
             st.markdown("**Daftar & Pengaturan Server**")
+            servers_to_shorten_single = []
             server_list = list(st.session_state.single_server_order)
             for i, s_name in enumerate(server_list):
-                control_cols = st.columns([0.7, 0.1, 0.1, 0.1])
-                with control_cols[0]: st.text_input("Server", value=s_name, key=f"single_display_name_{i}", disabled=True, label_visibility="collapsed")
+                control_cols = st.columns([0.1, 0.6, 0.1, 0.1, 0.1])
+                with control_cols[0]:
+                    if st.checkbox("ouo", key=f"shorten_single_{i}", help=f"Perpendek link untuk {s_name}"):
+                        servers_to_shorten_single.append(s_name)
                 with control_cols[1]:
-                    if st.button("↑", key=f"single_up_{i}", use_container_width=True, help="Naikkan urutan", disabled=(i == 0)): st.session_state.single_server_order.insert(i - 1, st.session_state.single_server_order.pop(i)); st.rerun()
+                    st.text_input("Server", value=s_name, key=f"single_display_name_{i}", disabled=True, label_visibility="collapsed")
                 with control_cols[2]:
-                    if st.button("↓", key=f"single_down_{i}", use_container_width=True, help="Turunkan urutan", disabled=(i == len(server_list) - 1)): st.session_state.single_server_order.insert(i + 1, st.session_state.single_server_order.pop(i)); st.rerun()
+                    if st.button("↑", key=f"single_up_{i}", use_container_width=True, help="Naikkan urutan", disabled=(i == 0)): st.session_state.single_server_order.insert(i - 1, st.session_state.single_server_order.pop(i)); st.rerun()
                 with control_cols[3]:
+                    if st.button("↓", key=f"single_down_{i}", use_container_width=True, help="Turunkan urutan", disabled=(i == len(server_list) - 1)): st.session_state.single_server_order.insert(i + 1, st.session_state.single_server_order.pop(i)); st.rerun()
+                with control_cols[4]:
                     if st.button("⌦", key=f"single_del_{i}", use_container_width=True, help=f"Hapus server {s_name}"):
                         server_to_delete = st.session_state.single_server_order.pop(i)
                         for res_data in st.session_state.single_data.values():
@@ -261,14 +266,10 @@ with tab2:
                         st.success(f"Perubahan untuk server '{s_name}' telah disimpan!"); st.rerun()
             st.divider()
             
-            shorten_single = st.checkbox("Perpendek link dengan ouo.io", key="shorten_single")
-            if shorten_single and not ouo_api_key:
-                st.warning("Masukkan API Key ouo.io di sidebar untuk memperpendek link.")
-
             if st.button("Generate HTML"):
                 st.session_state.single_final_html = generate_single_output(
                     st.session_state.single_data, selected_resolutions, st.session_state.single_server_order,
-                    shorten_links=shorten_single, api_key=ouo_api_key)
+                    servers_to_shorten=servers_to_shorten_single, api_key=ouo_api_key)
 
             if st.session_state.single_final_html:
                 st.code(st.session_state.single_final_html, language="html")
@@ -319,15 +320,20 @@ with tab3:
         st.subheader("Pengaturan & Hasil")
         if st.session_state.get('batch_data'):
             st.markdown("**Daftar & Pengaturan Server**")
+            servers_to_shorten_batch = []
             server_list = list(st.session_state.batch_server_order)
             for i, s_name in enumerate(server_list):
-                control_cols = st.columns([0.7, 0.1, 0.1, 0.1])
-                with control_cols[0]: st.text_input("Server", value=s_name, key=f"display_name_{i}", disabled=True, label_visibility="collapsed")
+                control_cols = st.columns([0.1, 0.6, 0.1, 0.1, 0.1])
+                with control_cols[0]:
+                    if st.checkbox("ouo", key=f"shorten_batch_{i}", help=f"Perpendek link untuk {s_name}"):
+                        servers_to_shorten_batch.append(s_name)
                 with control_cols[1]:
-                    if st.button("↑", key=f"batch_up_{i}", use_container_width=True, help="Naikkan urutan", disabled=(i == 0)): st.session_state.batch_server_order.insert(i - 1, st.session_state.batch_server_order.pop(i)); st.rerun()
+                    st.text_input("Server", value=s_name, key=f"display_name_{i}", disabled=True, label_visibility="collapsed")
                 with control_cols[2]:
-                    if st.button("↓", key=f"batch_down_{i}", use_container_width=True, help="Turunkan urutan", disabled=(i == len(server_list) - 1)): st.session_state.batch_server_order.insert(i + 1, st.session_state.batch_server_order.pop(i)); st.rerun()
+                    if st.button("↑", key=f"batch_up_{i}", use_container_width=True, help="Naikkan urutan", disabled=(i == 0)): st.session_state.batch_server_order.insert(i - 1, st.session_state.batch_server_order.pop(i)); st.rerun()
                 with control_cols[3]:
+                    if st.button("↓", key=f"batch_down_{i}", use_container_width=True, help="Turunkan urutan", disabled=(i == len(server_list) - 1)): st.session_state.batch_server_order.insert(i + 1, st.session_state.batch_server_order.pop(i)); st.rerun()
+                with control_cols[4]:
                     if st.button("⌦", key=f"batch_del_{i}", use_container_width=True, help=f"Hapus server {s_name}"):
                         server_to_delete = st.session_state.batch_server_order.pop(i)
                         for ep_data in st.session_state.batch_data.values():
@@ -354,16 +360,13 @@ with tab3:
             st.divider()
             
             use_uppercase_output = st.toggle("Jadikan nama server uppercase", value=True, key="batch_uppercase_output_toggle")
-            shorten_batch = st.checkbox("Perpendek link dengan ouo.io", key="shorten_batch")
-            if shorten_batch and not ouo_api_key:
-                st.warning("Masukkan API Key ouo.io di sidebar untuk memperpendek link.")
 
             if st.button("Generate Batch HTML"):
                 episode_range = range(st.session_state.get('batch_start', 1), st.session_state.get('batch_end', 1) + 1)
                 st.session_state.batch_final_html = generate_batch_output(
                     st.session_state.batch_data, episode_range, st.session_state.get('batch_res', []),
                     st.session_state.batch_server_order, use_uppercase=use_uppercase_output,
-                    shorten_links=shorten_batch, api_key=ouo_api_key)
+                    servers_to_shorten=servers_to_shorten_batch, api_key=ouo_api_key)
 
             if st.session_state.batch_final_html:
                 st.code(st.session_state.batch_final_html, language="html")

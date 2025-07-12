@@ -54,7 +54,7 @@ def generate_batch_output(data, episode_range, resolutions, server_order, use_up
         if ep_num not in data:
             continue
         
-        html_lines.append(f'<strong>EPISODE {ep_num}</strong>')
+        html_lines.append(f'<strong>Episode {ep_num}</strong>')
         
         # Urutkan resolusi sesuai dengan input pengguna
         sorted_resolutions = [res for res in resolutions if res in data.get(ep_num, {})]
@@ -70,7 +70,7 @@ def generate_batch_output(data, episode_range, resolutions, server_order, use_up
             
             if link_parts:
                 links_string = " | ".join(link_parts)
-                line = f'<p>{res} (Hardsub Indo) : {links_string}</p>'
+                line = f'<p>{res} (HARDSUB INDO) : {links_string}</p>'
                 html_lines.append(line)
     
     return "\n".join(html_lines)
@@ -133,7 +133,7 @@ with tab1:
         server_name_serial = st.text_input("Nama Server", placeholder="cth: MR", key="server_serial").strip().upper()
         links_serial = st.text_area("Tempel Link (urut per episode & resolusi)", placeholder="Contoh: Ep1 480p Ep1 720p Ep2 480p Ep2 720p...", height=150)
         
-        if st.button("➕ Tambah Data (Serial)"):
+        if st.button("+ Tambah Data (Serial)"):
             links = [x.strip() for x in links_serial.split() if x.strip()]
             resolutions = selected_resolutions_serial
             if not server_name_serial or not resolutions or not links:
@@ -163,7 +163,7 @@ with tab1:
             
             grouping_style = st.radio("Gaya Urutan:", ['Berdasarkan Server', 'Berdasarkan Resolusi'], horizontal=True, key="style_serial")
             
-            if st.button("🔨 BUAT KODE"):
+            if st.button("Buat Kode"):
                 st.session_state.serial_final_txt = generate_serial_output(
                     st.session_state.serial_data,
                     grouping_style,
@@ -172,7 +172,7 @@ with tab1:
             
             st.text_area("Hasil HTML:", value=st.session_state.serial_final_txt, height=200, key="output_serial")
             
-            if st.button("🔄 Reset Data Serial"):
+            if st.button("Reset Data Serial"):
                 st.session_state.serial_data = {}
                 st.session_state.serial_final_txt = ""
                 st.rerun()
@@ -216,7 +216,7 @@ with tab2:
             key="link_single"
         )
 
-        if st.button("➕ Tambah Data", type="primary"):
+        if st.button("+ Tambah Data", type="primary"):
             links = [l.strip() for l in links_single.strip().splitlines() if l.strip()]
             if not selected_resolutions:
                 st.warning("Pilih minimal satu resolusi.")
@@ -238,7 +238,7 @@ with tab2:
                 st.session_state.reset_single = True
                 st.rerun()
 
-        if st.button("🔄 Reset Semua Data"):
+        if st.button("Reset Semua Data"):
             st.session_state.single_data = {}
             st.session_state.single_server_order = []
             st.session_state.single_final_html = ""
@@ -270,14 +270,14 @@ with tab2:
                         st.rerun()
             st.divider()
 
-            if st.button("🚀 Generate HTML"):
+            if st.button("Generate HTML"):
                 st.session_state.single_final_html = generate_single_output(
                     st.session_state.single_data, selected_resolutions, st.session_state.single_server_order)
 
             if st.session_state.single_final_html:
                 st.code(st.session_state.single_final_html, language="html")
                 st.markdown("---")
-                st.markdown("### 👀 Live Preview")
+                st.markdown("### Live Preview")
                 st.components.v1.html(st.session_state.single_final_html, height=300, scrolling=True)
             else:
                 st.write("Klik tombol 'Generate HTML' untuk melihat hasil.")
@@ -323,7 +323,7 @@ with tab3:
             height=200
         )
 
-        if st.button("➕ Tambah Data Batch", type="primary"):
+        if st.button("+ Tambah Data Batch", type="primary"):
             links = [link.strip() for link in links_text.splitlines() if link.strip()]
             num_eps = (end_ep - start_ep) + 1
             
@@ -351,7 +351,7 @@ with tab3:
                     st.session_state.reset_batch = True
                     st.rerun()
 
-        if st.button("🔄 Reset Semua Data Batch"):
+        if st.button("Reset Semua Data Batch"):
             st.session_state.batch_data = {}
             st.session_state.batch_server_order = []
             st.session_state.batch_final_html = ""
@@ -399,7 +399,7 @@ with tab3:
                                     key=f"link_edit_{i}_{ep_num}_{res}"
                                 )
                     
-                    if st.button("💾 Simpan Perubahan", key=f"save_changes_{i}", use_container_width=True):
+                    if st.button("Simpan Perubahan", key=f"save_changes_{i}", use_container_width=True):
                         # Update Links
                         for ep_num in range(st.session_state.get('batch_start', 1), st.session_state.get('batch_end', 1) + 1):
                             for res in st.session_state.get('batch_res', []):
@@ -423,7 +423,7 @@ with tab3:
             # --- Pengaturan Output Final ---
             use_uppercase_output = st.toggle("Jadikan nama server uppercase", value=True, key="batch_uppercase_output_toggle")
 
-            if st.button("🚀 Generate Batch HTML"):
+            if st.button("Generate Batch HTML"):
                 episode_range = range(
                     st.session_state.get('batch_start', 1), 
                     st.session_state.get('batch_end', 1) + 1
@@ -439,7 +439,7 @@ with tab3:
             if st.session_state.batch_final_html:
                 st.code(st.session_state.batch_final_html, language="html")
                 st.markdown("---")
-                st.markdown("### 👀 Live Preview")
+                st.markdown("### Live Preview")
                 st.components.v1.html(st.session_state.batch_final_html, height=300, scrolling=True)
             else:
                 st.info("Klik tombol 'Generate Batch HTML' untuk melihat hasil.")

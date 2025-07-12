@@ -212,7 +212,7 @@ with tab2:
             
             server_list = st.session_state.single_server_order
             for i, server_name in enumerate(server_list):
-                r_col1, r_col2, r_col3, r_col4 = st.columns([0.6, 0.15, 0.15, 0.1])
+                r_col1, r_col2, r_col3, r_col4 = st.columns([0.7, 0.1, 0.1, 0.1])
                 
                 with r_col1:
                     st.text_input(

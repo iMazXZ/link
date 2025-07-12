@@ -236,7 +236,7 @@ with tab2:
             for i, s_name in enumerate(server_list):
                 control_cols = st.columns([0.2, 0.5, 0.1, 0.1, 0.1])
                 with control_cols[0]:
-                    if st.checkbox("ouo", key=f"shorten_single_{i}", help=f"Perpendek link untuk {s_name}"):
+                    if st.checkbox("ouo.io", key=f"shorten_single_{i}", help=f"Perpendek link untuk {s_name}"):
                         servers_to_shorten_single.append(s_name)
                 with control_cols[1]:
                     st.text_input("Server", value=s_name, key=f"single_display_name_{i}", disabled=True, label_visibility="collapsed")
@@ -325,7 +325,7 @@ with tab3:
             for i, s_name in enumerate(server_list):
                 control_cols = st.columns([0.2, 0.5, 0.1, 0.1, 0.1])
                 with control_cols[0]:
-                    if st.checkbox("ouo", key=f"shorten_batch_{i}", help=f"Perpendek link untuk {s_name}"):
+                    if st.checkbox("ouo.io", key=f"shorten_batch_{i}", help=f"Perpendek link untuk {s_name}"):
                         servers_to_shorten_batch.append(s_name)
                 with control_cols[1]:
                     st.text_input("Server", value=s_name, key=f"display_name_{i}", disabled=True, label_visibility="collapsed")

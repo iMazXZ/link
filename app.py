@@ -132,9 +132,25 @@ with tab2:
     with col1:
         st.subheader("Masukkan Data Link")
         default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
-        selected_resolutions = st.multiselect("Pilih Resolusi", options=default_resolutions, default=["360p", "540p", "720p"], key="res_single")
-        server_name_single = st.text_input("Nama Server", placeholder="contoh: TeraBox", key="server_single")
-        links_single = st.text_area("Link (1 link per baris sesuai urutan resolusi)", height=150)
+
+        selected_resolutions = st.multiselect(
+            "Pilih Resolusi",
+            options=default_resolutions,
+            default=["360p", "540p", "720p"],
+            key="res_single"
+        )
+
+        server_name_single = st.text_input(
+            "Nama Server",
+            placeholder="contoh: TeraBox",
+            key="server_single"
+        )
+
+        links_single = st.text_area(
+            "Link (1 link per baris sesuai urutan resolusi)",
+            height=150,
+            key="link_single"
+        )
 
         if st.button("➕ Tambah Data", type="primary"):
             links = [l.strip() for l in links_single.strip().splitlines() if l.strip()]
@@ -149,13 +165,16 @@ with tab2:
                     if res not in st.session_state.single_data:
                         st.session_state.single_data[res] = {}
                     st.session_state.single_data[res][server_name_single] = links[selected_resolutions.index(res)]
-                
+
                 if server_name_single not in st.session_state.single_server_order:
                     st.session_state.single_server_order.append(server_name_single)
-                
+
                 st.success(f"Server '{server_name_single}' berhasil ditambahkan.")
+
+                # ✅ RESET aman tanpa error
                 st.session_state["server_single"] = ""
                 st.session_state["res_single"] = ["360p", "540p", "720p"]
+                st.session_state["link_single"] = ""
 
         if st.button("🔄 Reset Data Konten Tunggal"):
             st.session_state.single_data = {}

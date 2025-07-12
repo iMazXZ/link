@@ -1,6 +1,6 @@
 import streamlit as st
 
-# Custom CSS for light theme redesign
+# Custom CSS for light theme redesign with layout fixes
 st.markdown("""
     <style>
     /* General body styling */
@@ -47,6 +47,7 @@ st.markdown("""
         background-color: #e2e8f0;
         border-radius: 8px;
         padding: 0.5rem;
+        justify-content: center;
     }
     .stTabs [data-baseweb="tab"] {
         background-color: #ffffff;
@@ -55,6 +56,8 @@ st.markdown("""
         margin: 0.2rem;
         padding: 0.5rem 1rem;
         font-weight: 500;
+        min-width: 150px;
+        text-align: center;
     }
     .stTabs [data-baseweb="tab"][aria-selected="true"] {
         background-color: #1a73e8;
@@ -92,12 +95,22 @@ st.markdown("""
         border: 1px solid #e2e8f0;
         border-radius: 6px;
         color: #2d3748;
+        padding: 0.5rem;
     }
     
     /* Multiselect */
     .stMultiSelect [data-baseweb="select"] {
         background-color: #f7fafc;
         border-radius: 6px;
+        border: 1px solid #e2e8f0;
+        padding: 0.25rem;
+    }
+    .stMultiSelect [data-baseweb="tag"] {
+        background-color: #e2e8f0;
+        color: #2d3748;
+        border-radius: 4px;
+        padding: 0.1rem 0.5rem;
+        margin: 0.1rem;
     }
     
     /* Info and warning boxes */
@@ -106,6 +119,7 @@ st.markdown("""
         background-color: #e6f3ff;
         color: #2d3748;
         border: 1px solid #bfdbfe;
+        padding: 0.75rem;
     }
     .stAlert[kind="warning"] {
         background-color: #fefcbf;
@@ -123,6 +137,7 @@ st.markdown("""
     /* Divider */
     .stDivider {
         background-color: #e2e8f0;
+        margin: 1rem 0;
     }
     
     /* Code block */
@@ -130,6 +145,7 @@ st.markdown("""
         background-color: #f7fafc;
         border: 1px solid #e2e8f0;
         border-radius: 6px;
+        padding: 1rem;
     }
     
     /* JSON viewer */
@@ -149,6 +165,18 @@ st.markdown("""
     /* Columns */
     .stColumn {
         padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    /* Ensure consistent spacing and alignment */
+    .stApp > div {
+        margin: 0 auto;
+        width: 100%;
+    }
+    .element-container {
+        margin-bottom: 1rem;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -178,7 +206,7 @@ def generate_serial_output(episodes_data, grouping_style, resolutions):
 
 def generate_single_output(data, resolutions, servers):
     html_lines = []
-    for res in Resolutions:
+    for res in resolutions:
         if res not in data:
             continue
         link_parts = []

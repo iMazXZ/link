@@ -64,7 +64,8 @@ def generate_output_drakor(data, episode_range, resolutions, servers, use_upperc
             
             # Tambahkan judul episode hanya jika dalam mode batch
             if len(episode_range) > 1:
-                html_lines.append(f'<strong>EPISODE {ep_num}</strong>')
+                # Terapkan style perataan ke judul episode
+                html_lines.append(f'<p{style_attr}><strong>EPISODE {ep_num}</strong></p>')
 
             for res in resolutions:
                 if res not in data.get(ep_num, {}): continue

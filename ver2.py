@@ -54,7 +54,7 @@ def generate_batch_output(data, episode_range, resolutions, server_order, use_up
         if ep_num not in data:
             continue
         
-        html_lines.append(f'<strong>Episode {ep_num}</strong>')
+        html_lines.append(f'<strong>EPISODE {ep_num}</strong>')
         
         # Urutkan resolusi sesuai dengan input pengguna
         sorted_resolutions = [res for res in resolutions if res in data.get(ep_num, {})]
@@ -70,7 +70,7 @@ def generate_batch_output(data, episode_range, resolutions, server_order, use_up
             
             if link_parts:
                 links_string = " | ".join(link_parts)
-                line = f'<p>{res} (HARDSUB INDO) : {links_string}</p>'
+                line = f'<p>{res} (Hardsub Indo) : {links_string}</p>'
                 html_lines.append(line)
     
     return "\n".join(html_lines)
@@ -252,17 +252,17 @@ with tab2:
             st.markdown("**Atur Urutan Server**")
             server_list = st.session_state.single_server_order
             for i, server_name in enumerate(server_list):
-                r_col1, r_col2, r_col3, r_col4 = st.columns([0.6, 0.15, 0.15, 0.1])
+                r_col1, r_col2, r_col3, r_col4 = st.columns([0.7, 0.1, 0.1, 0.1])
                 with r_col1:
                     st.text_input(label="Server", value=server_name, key=f"server_name_{i}", disabled=True, label_visibility="collapsed")
                 with r_col2:
-                    if st.button("⬆️", key=f"up_{i}", use_container_width=True, disabled=(i == 0)):
+                    if st.button("↑", key=f"up_{i}", use_container_width=True, disabled=(i == 0)):
                         server_list.insert(i - 1, server_list.pop(i)); st.rerun()
                 with r_col3:
-                    if st.button("⬇️", key=f"down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
+                    if st.button("↓", key=f"down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
                         server_list.insert(i + 1, server_list.pop(i)); st.rerun()
                 with r_col4:
-                    if st.button("🗑️", key=f"del_{i}", use_container_width=True):
+                    if st.button("⌦", key=f"del_{i}", use_container_width=True):
                         server_to_delete = server_list.pop(i)
                         for res_key in st.session_state.single_data:
                             if server_to_delete in st.session_state.single_data[res_key]:
@@ -367,17 +367,17 @@ with tab3:
             server_list = list(st.session_state.batch_server_order)
             for i, s_name in enumerate(server_list):
                 # --- Baris Kontrol Utama (di luar expander) ---
-                control_cols = st.columns([0.6, 0.1, 0.1, 0.2])
+                control_cols = st.columns([0.7, 0.1, 0.1, 0.1])
                 with control_cols[0]:
                     st.text_input("Server", value=s_name, key=f"display_name_{i}", disabled=True, label_visibility="collapsed")
                 with control_cols[1]:
-                    if st.button("⬆️", key=f"batch_up_{i}", use_container_width=True, help="Naikkan urutan", disabled=(i == 0)):
+                    if st.button("↑", key=f"batch_up_{i}", use_container_width=True, help="Naikkan urutan", disabled=(i == 0)):
                         st.session_state.batch_server_order.insert(i - 1, st.session_state.batch_server_order.pop(i)); st.rerun()
                 with control_cols[2]:
-                    if st.button("⬇️", key=f"batch_down_{i}", use_container_width=True, help="Turunkan urutan", disabled=(i == len(server_list) - 1)):
+                    if st.button("↓", key=f"batch_down_{i}", use_container_width=True, help="Turunkan urutan", disabled=(i == len(server_list) - 1)):
                         st.session_state.batch_server_order.insert(i + 1, st.session_state.batch_server_order.pop(i)); st.rerun()
                 with control_cols[3]:
-                    if st.button("🗑️ Hapus", key=f"batch_del_{i}", use_container_width=True, help=f"Hapus server {s_name}"):
+                    if st.button("⌦", key=f"batch_del_{i}", use_container_width=True, help=f"Hapus server {s_name}"):
                         server_to_delete = st.session_state.batch_server_order.pop(i)
                         for ep_data in st.session_state.batch_data.values():
                             for res_data in ep_data.values():

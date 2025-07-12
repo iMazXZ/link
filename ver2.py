@@ -1,5 +1,4 @@
 import streamlit as st
-# import pandas as pd # <-- Dihapus karena tidak lagi digunakan
 
 # =============================================================================
 # FUNGSI-FUNGSI HELPER
@@ -48,14 +47,45 @@ def generate_single_output(data, resolutions, servers):
             html_lines.append(line)
     return "\n".join(html_lines)
 
+def generate_batch_output(data, episode_range, resolutions, server_order):
+    """Menghasilkan output HTML untuk format batch drakor."""
+    html_lines = []
+    for ep_num in episode_range:
+        if ep_num not in data:
+            continue
+        
+        html_lines.append(f'<strong>Episode {ep_num}</strong>')
+        
+        # Urutkan resolusi sesuai dengan input pengguna
+        sorted_resolutions = [res for res in resolutions if res in data[ep_num]]
+
+        for res in sorted_resolutions:
+            link_parts = []
+            # Gunakan urutan server yang sudah diatur
+            for server in server_order:
+                if server in data[ep_num][res]:
+                    url = data[ep_num][res][server]
+                    link_parts.append(f'<a href="{url}">{server}</a>')
+            
+            if link_parts:
+                links_string = " | ".join(link_parts)
+                line = f'<p>{res} (HARDSUB INDO) : {links_string}</p>'
+                html_lines.append(line)
+    
+    return "\n".join(html_lines)
+
+
 # =============================================================================
 # STATE INISIALISASI
 # =============================================================================
 
+# State untuk Tab 1
 if 'serial_data' not in st.session_state:
     st.session_state.serial_data = {}
 if 'serial_final_txt' not in st.session_state:
     st.session_state.serial_final_txt = ""
+
+# State untuk Tab 2
 if 'single_data' not in st.session_state:
     st.session_state.single_data = {}
 if 'single_server_order' not in st.session_state:
@@ -65,6 +95,19 @@ if 'single_final_html' not in st.session_state:
 if 'reset_single' not in st.session_state:
     st.session_state.reset_single = False
 
+# State untuk Tab 3 (Batch Drakor)
+if 'batch_data' not in st.session_state:
+    st.session_state.batch_data = {}
+if 'batch_server_order' not in st.session_state:
+    st.session_state.batch_server_order = []
+if 'batch_final_html' not in st.session_state:
+    st.session_state.batch_final_html = ""
+if 'batch_episode_range' not in st.session_state:
+    st.session_state.batch_episode_range = []
+if 'batch_resolutions' not in st.session_state:
+    st.session_state.batch_resolutions = []
+
+
 # =============================================================================
 # UI UTAMA
 # =============================================================================
@@ -72,7 +115,7 @@ if 'reset_single' not in st.session_state:
 st.set_page_config(layout="wide", page_title="Universal Link Generator")
 st.title("Universal Link Generator")
 
-tab1, tab2 = st.tabs([" Bentuk Link Ringkas", "Bentuk Link Drakor"])
+tab1, tab2, tab3 = st.tabs(["Bentuk Link Ringkas", "Bentuk Link Drakor", "Link Batch Drakor"])
 
 # =============================================================================
 # TAB 1: LINK SERIAL
@@ -140,7 +183,7 @@ with tab1:
 # =============================================================================
 with tab2:
     st.header("Mode Bentuk Link Drakor")
-    st.info("Gunakan mode ini untuk membuat daftar link dengan format Drakor berdasarkan resolusi dan server.")
+    st.info("Gunakan mode ini untuk membuat daftar link dengan format Drakor untuk satu episode.")
 
     if st.session_state.reset_single:
         st.session_state.update({
@@ -207,50 +250,30 @@ with tab2:
         if not st.session_state.single_data:
             st.write("Belum ada data yang dimasukkan.")
         else:
-            # --- BLOK BARU UNTUK RE-ORDER DENGAN TOMBOL ---
             st.markdown("**Atur Urutan Server**")
-            
             server_list = st.session_state.single_server_order
             for i, server_name in enumerate(server_list):
-                r_col1, r_col2, r_col3, r_col4 = st.columns([0.7, 0.1, 0.1, 0.1])
-                
+                r_col1, r_col2, r_col3, r_col4 = st.columns([0.6, 0.15, 0.15, 0.1])
                 with r_col1:
-                    st.text_input(
-                        label="Server", 
-                        value=server_name, 
-                        key=f"server_name_{i}", 
-                        disabled=True, 
-                        label_visibility="collapsed"
-                    )
-
+                    st.text_input(label="Server", value=server_name, key=f"server_name_{i}", disabled=True, label_visibility="collapsed")
                 with r_col2:
-                    if st.button("↑", key=f"up_{i}", use_container_width=True, disabled=(i == 0)):
-                        server_list.insert(i - 1, server_list.pop(i))
-                        st.rerun()
-                
+                    if st.button("⬆️", key=f"up_{i}", use_container_width=True, disabled=(i == 0)):
+                        server_list.insert(i - 1, server_list.pop(i)); st.rerun()
                 with r_col3:
-                    if st.button("↓", key=f"down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
-                        server_list.insert(i + 1, server_list.pop(i))
-                        st.rerun()
-
+                    if st.button("⬇️", key=f"down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
+                        server_list.insert(i + 1, server_list.pop(i)); st.rerun()
                 with r_col4:
-                    if st.button("⌦", key=f"del_{i}", use_container_width=True):
+                    if st.button("🗑️", key=f"del_{i}", use_container_width=True):
                         server_to_delete = server_list.pop(i)
-                        # Hapus juga data link yang terkait dengan server ini
                         for res_key in st.session_state.single_data:
                             if server_to_delete in st.session_state.single_data[res_key]:
                                 del st.session_state.single_data[res_key][server_to_delete]
                         st.rerun()
-            
             st.divider()
-            # --- AKHIR BLOK BARU ---
 
             if st.button("🚀 Generate HTML"):
                 st.session_state.single_final_html = generate_single_output(
-                    st.session_state.single_data,
-                    selected_resolutions,
-                    st.session_state.single_server_order
-                )
+                    st.session_state.single_data, selected_resolutions, st.session_state.single_server_order)
 
             if st.session_state.single_final_html:
                 st.code(st.session_state.single_final_html, language="html")
@@ -259,3 +282,108 @@ with tab2:
                 st.components.v1.html(st.session_state.single_final_html, height=300, scrolling=True)
             else:
                 st.write("Klik tombol 'Generate HTML' untuk melihat hasil.")
+
+# =============================================================================
+# TAB 3: LINK BATCH DRAKOR
+# =============================================================================
+with tab3:
+    st.header("Mode Link Batch Drakor")
+    st.info("Gunakan mode ini untuk membuat daftar link untuk banyak episode sekaligus dengan format Drakor.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Masukkan Data Batch")
+        
+        c1, c2 = st.columns(2)
+        start_ep = c1.number_input("Mulai dari Episode", min_value=1, value=1, step=1, key="batch_start")
+        end_ep = c2.number_input("Sampai Episode", min_value=start_ep, value=start_ep, step=1, key="batch_end")
+
+        default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
+        resolutions = st.multiselect(
+            "Pilih Resolusi (sesuai urutan link)",
+            options=default_resolutions,
+            default=["480p", "720p"],
+            key="batch_res"
+        )
+        
+        servers_text = st.text_input("Nama Server (pisahkan dengan koma)", placeholder="MIRRORED, VIDGUARD", key="batch_servers").strip().upper()
+
+        links_text = st.text_area(
+            "Tempel semua link di sini (1 link per baris)",
+            placeholder="Link Ep1 480p Server1\nLink Ep1 480p Server2\nLink Ep1 720p Server1\nLink Ep1 720p Server2\nLink Ep2 480p Server1\n...",
+            height=250
+        )
+
+        if st.button("⚙️ Proses & Simpan Data Batch", type="primary"):
+            links = [link.strip() for link in links_text.splitlines() if link.strip()]
+            servers = [s.strip() for s in servers_text.split(',') if s.strip()]
+            num_eps = (end_ep - start_ep) + 1
+            
+            if not all([links, servers, resolutions, num_eps > 0]):
+                st.warning("Pastikan semua field terisi dengan benar.")
+            else:
+                expected_links = num_eps * len(resolutions) * len(servers)
+                if len(links) != expected_links:
+                    st.error(f"Jumlah link tidak sesuai. Diperlukan: {expected_links}, Disediakan: {len(links)}.")
+                else:
+                    st.session_state.batch_data = {}
+                    st.session_state.batch_server_order = servers
+                    st.session_state.batch_resolutions = resolutions
+                    st.session_state.batch_episode_range = range(start_ep, end_ep + 1)
+                    
+                    link_idx = 0
+                    for ep in range(start_ep, end_ep + 1):
+                        st.session_state.batch_data[ep] = {}
+                        for res in resolutions:
+                            st.session_state.batch_data[ep][res] = {}
+                            for server in servers:
+                                st.session_state.batch_data[ep][res][server] = links[link_idx]
+                                link_idx += 1
+                    st.success(f"Data untuk Episode {start_ep}-{end_ep} berhasil diproses dan disimpan!")
+
+        if st.button("🔄 Reset Data Batch"):
+            st.session_state.batch_data = {}
+            st.session_state.batch_server_order = []
+            st.session_state.batch_final_html = ""
+            st.session_state.batch_episode_range = []
+            st.session_state.batch_resolutions = []
+            st.rerun()
+
+    with col2:
+        st.subheader("Pengaturan & Hasil")
+        if not st.session_state.batch_data:
+            st.write("Belum ada data batch yang diproses.")
+        else:
+            st.write(f"**Data Tersimpan:** Episode {st.session_state.batch_episode_range.start} s/d {st.session_state.batch_episode_range.stop - 1}")
+            st.write(f"**Resolusi:** {', '.join(st.session_state.batch_resolutions)}")
+            st.markdown("**Atur Ulang Urutan Server**")
+            
+            server_list = st.session_state.batch_server_order
+            for i, server_name in enumerate(server_list):
+                r_col1, r_col2, r_col3 = st.columns([0.7, 0.15, 0.15])
+                with r_col1:
+                    st.text_input("Server", server_name, key=f"batch_server_name_{i}", disabled=True, label_visibility="collapsed")
+                with r_col2:
+                    if st.button("⬆️", key=f"batch_up_{i}", use_container_width=True, disabled=(i == 0)):
+                        server_list.insert(i - 1, server_list.pop(i)); st.rerun()
+                with r_col3:
+                    if st.button("⬇️", key=f"batch_down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
+                        server_list.insert(i + 1, server_list.pop(i)); st.rerun()
+            st.divider()
+
+            if st.button("🚀 Generate Batch HTML"):
+                st.session_state.batch_final_html = generate_batch_output(
+                    st.session_state.batch_data,
+                    st.session_state.batch_episode_range,
+                    st.session_state.batch_resolutions,
+                    st.session_state.batch_server_order
+                )
+
+            if st.session_state.batch_final_html:
+                st.code(st.session_state.batch_final_html, language="html")
+                st.markdown("---")
+                st.markdown("### 👀 Live Preview")
+                st.components.v1.html(st.session_state.batch_final_html, height=300, scrolling=True)
+            else:
+                st.info("Klik tombol 'Generate Batch HTML' untuk melihat hasil.")

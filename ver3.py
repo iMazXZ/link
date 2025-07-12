@@ -135,27 +135,30 @@ if st.sidebar.button("Simpan Sesi Saat Ini"):
     st.sidebar.markdown(href, unsafe_allow_html=True)
     st.sidebar.success("File sesi siap diunduh.")
 
-# Fitur Muat
-uploaded_file = st.sidebar.file_uploader("Muat File Sesi (.json)", type="json")
-if uploaded_file is not None:
-    try:
-        loaded_data = json.load(uploaded_file)
-        # Validasi kunci dasar
-        required_keys = ['main_data', 'server_order', 'resolutions', 'start_ep', 'end_ep']
-        if all(key in loaded_data for key in required_keys):
-            st.session_state.main_data = {int(k): v for k, v in loaded_data['main_data'].items()} # Pastikan key episode adalah integer
-            st.session_state.server_order = loaded_data['server_order']
-            st.session_state.resolutions = loaded_data['resolutions']
-            st.session_state.start_ep = loaded_data['start_ep']
-            st.session_state.end_ep = loaded_data['end_ep']
-            st.session_state.final_html = "" # Reset hasil html
-            st.sidebar.success("Sesi berhasil dimuat!")
-            # Hapus file dari uploader untuk memungkinkan upload ulang file yang sama
-            st.rerun()
-        else:
-            st.sidebar.error("File JSON tidak valid atau tidak memiliki format yang benar.")
-    except Exception as e:
-        st.sidebar.error(f"Gagal memuat file: {e}")
+# Fitur Muat dari Teks
+json_text_to_load = st.sidebar.text_area("Tempel konten file .json di sini untuk memuat sesi", height=150)
+if st.sidebar.button("Muat dari Teks"):
+    if json_text_to_load:
+        try:
+            loaded_data = json.loads(json_text_to_load)
+            required_keys = ['main_data', 'server_order', 'resolutions', 'start_ep', 'end_ep']
+            if all(key in loaded_data for key in required_keys):
+                st.session_state.main_data = {int(k): v for k, v in loaded_data['main_data'].items()}
+                st.session_state.server_order = loaded_data['server_order']
+                st.session_state.resolutions = loaded_data['resolutions']
+                st.session_state.start_ep = loaded_data['start_ep']
+                st.session_state.end_ep = loaded_data['end_ep']
+                st.session_state.final_html = ""
+                st.sidebar.success("Sesi berhasil dimuat!")
+                st.rerun()
+            else:
+                st.sidebar.error("Teks JSON tidak valid atau tidak memiliki format yang benar.")
+        except json.JSONDecodeError:
+            st.sidebar.error("Format teks bukan JSON yang valid. Pastikan Anda menyalin seluruh konten file.")
+        except Exception as e:
+            st.sidebar.error(f"Gagal memuat data: {e}")
+    else:
+        st.sidebar.warning("Area teks kosong. Tempelkan konten JSON terlebih dahulu.")
 
 
 SERVER_OPTIONS = ["(Ketik Manual)", "Mirrored", "TeraBox", "UpFiles", "BuzzHeav", "AkiraBox", "SendNow", "KrakrnFl", "Vidguard", "StreamHG"]

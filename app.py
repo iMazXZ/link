@@ -1,8 +1,8 @@
 import streamlit as st
 
-# ============================
-# FUNGSI UTAMA
-# ============================
+# =============================================================================
+# FUNGSI-FUNGSI HELPER
+# =============================================================================
 
 def generate_serial_output(episodes_data, grouping_style, resolutions):
     txt_lines = []
@@ -39,9 +39,9 @@ def generate_single_output(data, resolutions, servers):
             html_lines.append(line)
     return "\n".join(html_lines)
 
-# ============================
-# SESSION STATE INISIALISASI
-# ============================
+# =============================================================================
+# STATE INISIALISASI
+# =============================================================================
 
 if 'serial_data' not in st.session_state:
     st.session_state.serial_data = {}
@@ -56,19 +56,18 @@ if 'single_final_html' not in st.session_state:
 if 'reset_single' not in st.session_state:
     st.session_state.reset_single = False
 
-# ============================
+# =============================================================================
 # UI UTAMA
-# ============================
+# =============================================================================
 
 st.set_page_config(layout="wide", page_title="Universal Link Generator")
 st.title("Universal Link Generator")
 
 tab1, tab2 = st.tabs([" Bentuk Link Ringkas", "Bentuk Link Drakor"])
 
-# =============================
+# =============================================================================
 # TAB 1: LINK SERIAL
-# =============================
-
+# =============================================================================
 with tab1:
     st.header("Mode Bentuk Link Ringkas")
     st.info("Gunakan mode ini untuk membuat daftar link dari satu atau lebih server untuk banyak episode sekaligus.")
@@ -127,13 +126,22 @@ with tab1:
                 st.session_state.serial_final_txt = ""
                 st.rerun()
 
-# =============================
+# =============================================================================
 # TAB 2: LINK DRAKOR
-# =============================
-
+# =============================================================================
 with tab2:
     st.header("Mode Bentuk Link Drakor")
     st.info("Gunakan mode ini untuk membuat daftar link dengan format Drakor berdasarkan resolusi dan server.")
+
+    # ✅ Reset form input jika diperlukan
+    if st.session_state.reset_single:
+        st.session_state.update({
+            "server_single": "",
+            "link_single": "",
+            "res_single": st.session_state.get("res_single", ["360p", "540p", "720p"]),
+            "reset_single": False
+        })
+        st.rerun()
 
     col1, col2 = st.columns(2)
 
@@ -144,13 +152,21 @@ with tab2:
         selected_resolutions = st.multiselect(
             "Pilih Resolusi",
             options=default_resolutions,
-            default=st.session_state.get("res_single", ["360p", "480p", "540p", "720p"]),
+            default=["360p", "480p", "540p", "720p"],
             key="res_single"
         )
 
-        server_name_single = st.text_input("Nama Server", placeholder="contoh: TeraBox", key="server_single")
+        server_name_single = st.text_input(
+            "Nama Server",
+            placeholder="contoh: TeraBox",
+            key="server_single"
+        )
 
-        links_single = st.text_area("Link (1 link per baris sesuai urutan resolusi)", height=150, key="link_single")
+        links_single = st.text_area(
+            "Link (1 link per baris sesuai urutan resolusi)",
+            height=150,
+            key="link_single"
+        )
 
         if st.button("➕ Tambah Data", type="primary"):
             links = [l.strip() for l in links_single.strip().splitlines() if l.strip()]
@@ -170,14 +186,9 @@ with tab2:
                     st.session_state.single_server_order.append(server_name_single)
 
                 st.success(f"Server '{server_name_single}' berhasil ditambahkan.")
+
                 st.session_state.reset_single = True
                 st.rerun()
-
-        if st.session_state.get("reset_single"):
-            st.session_state["server_single"] = ""
-            st.session_state["link_single"] = ""
-            st.session_state["res_single"] = selected_resolutions
-            st.session_state["reset_single"] = False
 
         if st.button("🔄 Reset Data Konten Tunggal"):
             st.session_state.single_data = {}

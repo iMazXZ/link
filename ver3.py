@@ -3,7 +3,7 @@ import requests
 import time
 
 # =============================================================================
-# FUNGSI-FUNGSI HELPER (TIDAK BERUBAH)
+# FUNGSI-FUNGSI HELPER
 # =============================================================================
 
 def shorten_with_ouo(url, api_key):
@@ -24,26 +24,39 @@ def shorten_with_ouo(url, api_key):
         st.error(f"Error koneksi saat menghubungi ouo.io: {e}")
         return url
 
-def generate_output_ringkas(data, episode_range, resolutions, servers, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format ringkas (seperti Tab 1 lama)."""
+def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, shorten_servers=[], api_key=""):
+    """Menghasilkan output HTML format ringkas dengan opsi grouping."""
     txt_lines = []
     with st.spinner('Memproses link...'):
         for ep_num in episode_range:
             if ep_num not in data: continue
+            
             link_parts = []
-            for server in servers:
-                if server not in data[ep_num]: continue
+            # Mengelompokkan berdasarkan Server
+            if "Server" in grouping_style:
+                for server in servers:
+                    if server not in data[ep_num]: continue
+                    for res in resolutions:
+                        if res in data[ep_num][server]:
+                            url = data[ep_num][server][res]
+                            if server in shorten_servers:
+                                url = shorten_with_ouo(url, api_key)
+                            link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{server.upper()} {res}</a>')
+            # Mengelompokkan berdasarkan Resolusi
+            else: # "Resolusi"
                 for res in resolutions:
-                    if res in data[ep_num][server]:
-                        url = data[ep_num][server][res]
-                        if server in shorten_servers:
-                            url = shorten_with_ouo(url, api_key)
-                        link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{server.upper()} {res}</a>')
+                    for server in servers:
+                        if server in data.get(ep_num, {}) and res in data[ep_num][server]:
+                            url = data[ep_num][server][res]
+                            if server in shorten_servers:
+                                url = shorten_with_ouo(url, api_key)
+                            link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{server.upper()} {res}</a>')
+
             txt_lines.append(f'<li><strong>EPISODE {ep_num}</strong> {" ".join(link_parts)}</li>')
     return "\n".join(txt_lines)
 
 def generate_output_drakor_center(data, resolutions, servers, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format drakor center (seperti Tab 2 lama)."""
+    """Menghasilkan output HTML format drakor center."""
     html_lines = []
     with st.spinner('Memproses dan memperpendek link...'):
         for res in resolutions:
@@ -61,7 +74,7 @@ def generate_output_drakor_center(data, resolutions, servers, shorten_servers=[]
     return "\n".join(html_lines)
 
 def generate_output_batch_drakor(data, episode_range, resolutions, servers, use_uppercase=True, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format batch drakor (seperti Tab 3 lama)."""
+    """Menghasilkan output HTML format batch drakor."""
     html_lines = []
     with st.spinner('Memproses dan memperpendek link...'):
         for ep_num in episode_range:
@@ -71,7 +84,7 @@ def generate_output_batch_drakor(data, episode_range, resolutions, servers, use_
                 if res not in data[ep_num]: continue
                 link_parts = []
                 for server in servers:
-                    if server in data[ep_num][res]:
+                    if server in data.get(ep_num, {}).get(res, {}):
                         url = data[ep_num][res][server]
                         if server in shorten_servers:
                             url = shorten_with_ouo(url, api_key)
@@ -197,9 +210,36 @@ with col2:
                         if server_to_delete in ep_data: del ep_data[server_to_delete]
                     st.rerun()
             with st.expander(f"Edit detail untuk server: {s_name}"):
-                # ... (Logika edit tetap sama, hanya disesuaikan untuk struktur data baru)
-                pass # Untuk sementara, logika edit bisa ditambahkan kembali jika diperlukan
-        
+                new_server_name = st.text_input("Edit Nama Server", value=s_name, key=f"edit_name_{i}")
+                st.write("**Edit Link:**")
+                # Loop through all episodes and resolutions to find links for this server
+                for ep_num, ep_data in st.session_state.main_data.items():
+                    if s_name in ep_data:
+                        for res, link in ep_data[s_name].items():
+                            st.text_input(
+                                label=f"Ep {ep_num} - {res}", 
+                                value=link,
+                                key=f"link_edit_{i}_{ep_num}_{res}"
+                            )
+                
+                if st.button("Simpan Perubahan", key=f"save_changes_{i}", use_container_width=True):
+                    # Update Links
+                    for ep_num, ep_data in st.session_state.main_data.items():
+                        if s_name in ep_data:
+                            for res in ep_data[s_name]:
+                                link_key = f"link_edit_{i}_{ep_num}_{res}"
+                                if link_key in st.session_state:
+                                    st.session_state.main_data[ep_num][s_name][res] = st.session_state[link_key]
+
+                    # Update Name
+                    if new_server_name != s_name:
+                        st.session_state.server_order[i] = new_server_name
+                        for ep_data in st.session_state.main_data.values():
+                            if s_name in ep_data:
+                                ep_data[new_server_name] = ep_data.pop(s_name)
+                    
+                    st.success(f"Perubahan untuk server '{s_name}' telah disimpan!"); st.rerun()
+
         st.divider()
 
         # --- Pilihan Format Output ---
@@ -211,28 +251,31 @@ with col2:
         )
         
         use_uppercase = True
+        grouping_style = "Berdasarkan Server" # Default
         if output_format == "Format Batch Drakor (Default)":
             use_uppercase = st.toggle("Jadikan nama server uppercase", value=True, key="uppercase_toggle")
+        elif output_format == "Format Ringkas":
+            grouping_style = st.radio("Urutkan berdasarkan:", ["Server", "Resolusi"], horizontal=True, key="grouping_style")
+
 
         if st.button("🚀 Generate HTML", type="primary"):
             final_html = ""
-            episode_range = range(st.session_state.get('start_ep', 1), st.session_state.get('end_ep', 1) + 1)
+            episode_keys = sorted(st.session_state.main_data.keys())
+            episode_range = range(episode_keys[0], episode_keys[-1] + 1)
+            active_resolutions = st.session_state.get('resolutions', [])
             
             if output_format == "Format Ringkas":
-                # Untuk format ringkas, kita asumsikan data yang relevan adalah dari episode batch
-                final_html = generate_output_ringkas(st.session_state.main_data, episode_range, st.session_state.resolutions, st.session_state.server_order, servers_to_shorten, ouo_api_key)
+                final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, servers_to_shorten, ouo_api_key)
             elif output_format == "Format Drakor - Center":
-                # Ambil data dari episode pertama sebagai representasi single link
                 single_data_for_gen = st.session_state.main_data.get(1, {})
-                # Balik strukturnya agar sesuai dengan format yang diharapkan fungsi
                 formatted_single_data = {}
                 for server, res_links in single_data_for_gen.items():
                     for res, link in res_links.items():
                         if res not in formatted_single_data: formatted_single_data[res] = {}
                         formatted_single_data[res][server] = link
-                final_html = generate_output_drakor_center(formatted_single_data, st.session_state.resolutions, st.session_state.server_order, servers_to_shorten, ouo_api_key)
+                final_html = generate_output_drakor_center(formatted_single_data, active_resolutions, st.session_state.server_order, servers_to_shorten, ouo_api_key)
             else: # "Format Batch Drakor (Default)"
-                final_html = generate_output_batch_drakor(st.session_state.main_data, episode_range, st.session_state.resolutions, st.session_state.server_order, use_uppercase, servers_to_shorten, ouo_api_key)
+                final_html = generate_output_batch_drakor(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase, servers_to_shorten, ouo_api_key)
             
             st.session_state.final_html = final_html
 

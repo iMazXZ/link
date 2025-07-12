@@ -224,17 +224,17 @@ with tab2:
                     )
 
                 with r_col2:
-                    if st.button("⬆️ Naik", key=f"up_{i}", use_container_width=True, disabled=(i == 0)):
+                    if st.button("↑", key=f"up_{i}", use_container_width=True, disabled=(i == 0)):
                         server_list.insert(i - 1, server_list.pop(i))
                         st.rerun()
                 
                 with r_col3:
-                    if st.button("⬇️ Turun", key=f"down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
+                    if st.button("↓", key=f"down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
                         server_list.insert(i + 1, server_list.pop(i))
                         st.rerun()
 
                 with r_col4:
-                    if st.button("🗑️", key=f"del_{i}", use_container_width=True):
+                    if st.button("⌦", key=f"del_{i}", use_container_width=True):
                         server_to_delete = server_list.pop(i)
                         # Hapus juga data link yang terkait dengan server ini
                         for res_key in st.session_state.single_data:

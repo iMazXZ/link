@@ -1,19 +1,23 @@
 import streamlit as st
+# import pandas as pd # <-- Dihapus karena tidak lagi digunakan
 
 # =============================================================================
 # FUNGSI-FUNGSI HELPER
 # =============================================================================
 
 def generate_serial_output(episodes_data, grouping_style, resolutions):
+    """Menghasilkan output HTML untuk link serial."""
     txt_lines = []
     for ep_num in sorted(episodes_data.keys()):
         links = []
+        # Mengelompokkan berdasarkan Server
         if "Server" in grouping_style:
             for server in sorted(episodes_data[ep_num].keys()):
                 for res in resolutions:
                     if res in episodes_data[ep_num][server]:
                         link = episodes_data[ep_num][server][res]
                         links.append(f'<a href="{link["url"]}" rel="nofollow" data-wpel-link="external">{link["label"]}</a>')
+        # Mengelompokkan berdasarkan Resolusi
         elif "Resolusi" in grouping_style:
             for res in resolutions:
                 for server in sorted(episodes_data[ep_num].keys()):
@@ -24,11 +28,16 @@ def generate_serial_output(episodes_data, grouping_style, resolutions):
     return "\n".join(txt_lines)
 
 def generate_single_output(data, resolutions, servers):
+    """Menghasilkan output HTML untuk link format Drakor."""
     html_lines = []
-    for res in resolutions:
+    # Memastikan urutan resolusi sesuai dengan yang dipilih pengguna
+    sorted_resolutions = [res for res in resolutions if res in data]
+
+    for res in sorted_resolutions:
         if res not in data:
             continue
         link_parts = []
+        # Menggunakan urutan server yang sudah di-reorder oleh pengguna
         for server in servers:
             if server in data[res]:
                 url = data[res][server]
@@ -133,15 +142,12 @@ with tab2:
     st.header("Mode Bentuk Link Drakor")
     st.info("Gunakan mode ini untuk membuat daftar link dengan format Drakor berdasarkan resolusi dan server.")
 
-    # ✅ Reset form input jika diperlukan
     if st.session_state.reset_single:
         st.session_state.update({
             "server_single": "",
             "link_single": "",
-            "res_single": st.session_state.get("res_single", ["360p", "540p", "720p"]),
             "reset_single": False
         })
-        st.rerun()
 
     col1, col2 = st.columns(2)
 
@@ -150,7 +156,7 @@ with tab2:
         default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
 
         selected_resolutions = st.multiselect(
-            "Pilih Resolusi",
+            "Pilih Resolusi (Urutan ini akan digunakan di hasil akhir)",
             options=default_resolutions,
             default=["360p", "480p", "540p", "720p"],
             key="res_single"
@@ -160,7 +166,7 @@ with tab2:
             "Nama Server",
             placeholder="contoh: TeraBox",
             key="server_single"
-        )
+        ).strip()
 
         links_single = st.text_area(
             "Link (1 link per baris sesuai urutan resolusi)",
@@ -177,38 +183,72 @@ with tab2:
             elif len(selected_resolutions) != len(links):
                 st.error(f"Jumlah link ({len(links)}) tidak cocok dengan jumlah resolusi yang dipilih ({len(selected_resolutions)}).")
             else:
-                for res in selected_resolutions:
+                for i, res in enumerate(selected_resolutions):
                     if res not in st.session_state.single_data:
                         st.session_state.single_data[res] = {}
-                    st.session_state.single_data[res][server_name_single] = links[selected_resolutions.index(res)]
+                    st.session_state.single_data[res][server_name_single] = links[i]
 
                 if server_name_single not in st.session_state.single_server_order:
                     st.session_state.single_server_order.append(server_name_single)
 
                 st.success(f"Server '{server_name_single}' berhasil ditambahkan.")
-
+                
                 st.session_state.reset_single = True
                 st.rerun()
 
-        if st.button("🔄 Reset Data Konten Tunggal"):
+        if st.button("🔄 Reset Semua Data"):
             st.session_state.single_data = {}
             st.session_state.single_server_order = []
             st.session_state.single_final_html = ""
             st.rerun()
 
     with col2:
-        st.subheader("Hasil HTML")
+        st.subheader("Pengaturan Hasil")
         if not st.session_state.single_data:
             st.write("Belum ada data yang dimasukkan.")
         else:
-            st.write("**Urutan Server Ditambahkan:**")
-            st.write(" → ".join(f"`{s}`" for s in st.session_state.single_server_order))
+            # --- BLOK BARU UNTUK RE-ORDER DENGAN TOMBOL ---
+            st.markdown("**Atur Urutan Server**")
+            
+            server_list = st.session_state.single_server_order
+            for i, server_name in enumerate(server_list):
+                r_col1, r_col2, r_col3, r_col4 = st.columns([0.7, 0.1, 0.1, 0.1])
+                
+                with r_col1:
+                    st.text_input(
+                        label="Server", 
+                        value=server_name, 
+                        key=f"server_name_{i}", 
+                        disabled=True, 
+                        label_visibility="collapsed"
+                    )
+
+                with r_col2:
+                    if st.button("↑", key=f"up_{i}", use_container_width=True, disabled=(i == 0)):
+                        server_list.insert(i - 1, server_list.pop(i))
+                        st.rerun()
+                
+                with r_col3:
+                    if st.button("↓", key=f"down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
+                        server_list.insert(i + 1, server_list.pop(i))
+                        st.rerun()
+
+                with r_col4:
+                    if st.button("⌦", key=f"del_{i}", use_container_width=True):
+                        server_to_delete = server_list.pop(i)
+                        # Hapus juga data link yang terkait dengan server ini
+                        for res_key in st.session_state.single_data:
+                            if server_to_delete in st.session_state.single_data[res_key]:
+                                del st.session_state.single_data[res_key][server_to_delete]
+                        st.rerun()
+            
             st.divider()
+            # --- AKHIR BLOK BARU ---
 
             if st.button("🚀 Generate HTML"):
                 st.session_state.single_final_html = generate_single_output(
                     st.session_state.single_data,
-                    list(st.session_state.single_data.keys()),
+                    selected_resolutions,
                     st.session_state.single_server_order
                 )
 

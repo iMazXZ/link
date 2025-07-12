@@ -1,143 +1,24 @@
 import streamlit as st
-
-# =============================================================================
-# KONFIGURASI HALAMAN
-# =============================================================================
-st.set_page_config(
-    layout="wide",
-    page_title="Universal Link Generator"
-)
-
-# Custom CSS untuk memaksa light mode dan mengatasi semua elemen UI
-st.markdown(
-    """
-    <style>
-    /* Dasar-dasar tema light */
-    :root {
-        --primary: #f63366;
-        --background-color: #ffffff;
-        --secondary-background-color: #f0f2f6;
-        --text-color: #000000;
-        --font: sans-serif;
-    }
-    
-    /* Elemen utama */
-    body {
-        background-color: var(--background-color) !important;
-        color: var(--text-color) !important;
-        font-family: var(--font);
-    }
-    
-    /* Header dan teks */
-    h1, h2, h3, h4, h5, h6, p, div, span, pre, code, label {
-        color: var(--text-color) !important;
-    }
-    
-    /* Input fields */
-    .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox select {
-        background-color: white !important;
-        color: black !important;
-        border: 1px solid #d0d0d0 !important;
-    }
-    
-    .stTextInput label, .stTextArea label, .stNumberInput label, .stSelectbox label {
-        color: black !important;
-    }
-    
-    /* Radio button */
-    .stRadio label {
-        color: black !important;
-    }
-    
-    .stRadio [role="radiogroup"] {
-        background-color: white !important;
-        border: 1px solid #d0d0d0 !important;
-    }
-    
-    /* Tombol */
-    .stButton button {
-        background-color: #f0f2f6 !important;
-        color: black !important;
-        border: 1px solid #d0d0d0 !important;
-    }
-    
-    .stButton button:hover {
-        background-color: #e0e2e6 !important;
-        border: 1px solid #c0c2c6 !important;
-    }
-    
-    /* Alert box */
-    .stAlert {
-        background-color: #f0f2f6 !important;
-        color: black !important;
-        border: 1px solid #d0d0d0 !important;
-    }
-    
-    /* Tabs */
-    .stTabs [aria-selected="true"] {
-        color: black !important;
-        border-bottom: 2px solid var(--primary) !important;
-    }
-    
-    .stTabs [aria-selected="false"] {
-        color: #666666 !important;
-    }
-    
-    /* JSON viewer */
-    .stJson {
-        background-color: white !important;
-        color: black !important;
-        border: 1px solid #d0d0d0 !important;
-    }
-    
-    /* Text area output */
-    textarea {
-        background-color: white !important;
-        color: black !important;
-        border: 1px solid #d0d0d0 !important;
-    }
-    
-    /* Code block */
-    code {
-        background-color: #f5f5f5 !important;
-        color: #333 !important;
-    }
-    
-    /* Divider */
-    hr {
-        border-color: #d0d0d0 !important;
-    }
-    
-    /* Preview box */
-    .stFrame {
-        background-color: white !important;
-        border: 1px solid #d0d0d0 !important;
-    }
-    
-    /* Full width layout */
-    .reportview-container .main .block-container {
-        max-width: 100%;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+import pandas as pd
 
 # =============================================================================
 # FUNGSI-FUNGSI HELPER
 # =============================================================================
 
 def generate_serial_output(episodes_data, grouping_style, resolutions):
+    """Menghasilkan output HTML untuk link serial."""
     txt_lines = []
     for ep_num in sorted(episodes_data.keys()):
         links = []
-        if "Berdasarkan Server" in grouping_style:
+        # Mengelompokkan berdasarkan Server
+        if "Server" in grouping_style:
             for server in sorted(episodes_data[ep_num].keys()):
                 for res in resolutions:
                     if res in episodes_data[ep_num][server]:
                         link = episodes_data[ep_num][server][res]
                         links.append(f'<a href="{link["url"]}" rel="nofollow" data-wpel-link="external">{link["label"]}</a>')
-        elif "Berdasarkan Resolusi" in grouping_style:
+        # Mengelompokkan berdasarkan Resolusi
+        elif "Resolusi" in grouping_style:
             for res in resolutions:
                 for server in sorted(episodes_data[ep_num].keys()):
                     if res in episodes_data[ep_num][server]:
@@ -147,11 +28,16 @@ def generate_serial_output(episodes_data, grouping_style, resolutions):
     return "\n".join(txt_lines)
 
 def generate_single_output(data, resolutions, servers):
+    """Menghasilkan output HTML untuk link format Drakor."""
     html_lines = []
-    for res in resolutions:
+    # Memastikan urutan resolusi sesuai dengan yang dipilih pengguna
+    sorted_resolutions = [res for res in resolutions if res in data]
+
+    for res in sorted_resolutions:
         if res not in data:
             continue
         link_parts = []
+        # Menggunakan urutan server yang sudah di-reorder oleh pengguna
         for server in servers:
             if server in data[res]:
                 url = data[res][server]
@@ -183,6 +69,7 @@ if 'reset_single' not in st.session_state:
 # UI UTAMA
 # =============================================================================
 
+st.set_page_config(layout="wide", page_title="Universal Link Generator")
 st.title("Universal Link Generator")
 
 tab1, tab2 = st.tabs([" Bentuk Link Ringkas", "Bentuk Link Drakor"])
@@ -260,10 +147,9 @@ with tab2:
         st.session_state.update({
             "server_single": "",
             "link_single": "",
-            "res_single": st.session_state.get("res_single", ["360p", "540p", "720p"]),
             "reset_single": False
         })
-        st.rerun()
+        # Tidak perlu me-rerun di sini agar tidak mengganggu alur
 
     col1, col2 = st.columns(2)
 
@@ -272,7 +158,7 @@ with tab2:
         default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
 
         selected_resolutions = st.multiselect(
-            "Pilih Resolusi",
+            "Pilih Resolusi (Urutan ini akan digunakan di hasil akhir)",
             options=default_resolutions,
             default=["360p", "480p", "540p", "720p"],
             key="res_single"
@@ -282,7 +168,7 @@ with tab2:
             "Nama Server",
             placeholder="contoh: TeraBox",
             key="server_single"
-        )
+        ).strip()
 
         links_single = st.text_area(
             "Link (1 link per baris sesuai urutan resolusi)",
@@ -299,39 +185,61 @@ with tab2:
             elif len(selected_resolutions) != len(links):
                 st.error(f"Jumlah link ({len(links)}) tidak cocok dengan jumlah resolusi yang dipilih ({len(selected_resolutions)}).")
             else:
-                for res in selected_resolutions:
+                for i, res in enumerate(selected_resolutions):
                     if res not in st.session_state.single_data:
                         st.session_state.single_data[res] = {}
-                    st.session_state.single_data[res][server_name_single] = links[selected_resolutions.index(res)]
+                    st.session_state.single_data[res][server_name_single] = links[i]
 
                 if server_name_single not in st.session_state.single_server_order:
                     st.session_state.single_server_order.append(server_name_single)
 
                 st.success(f"Server '{server_name_single}' berhasil ditambahkan.")
-
+                
+                # Set flag untuk reset input dan rerun
                 st.session_state.reset_single = True
                 st.rerun()
 
-        if st.button("🔄 Reset Data Konten Tunggal"):
+        if st.button("🔄 Reset Semua Data"):
             st.session_state.single_data = {}
             st.session_state.single_server_order = []
             st.session_state.single_final_html = ""
             st.rerun()
 
     with col2:
-        st.subheader("Hasil HTML")
+        st.subheader("Pengaturan Hasil")
         if not st.session_state.single_data:
             st.write("Belum ada data yang dimasukkan.")
         else:
-            st.write("**Urutan Server Ditambahkan:**")
-            st.write(" → ".join(f"`{s}`" for s in st.session_state.single_server_order))
+            # --- BLOK BARU UNTUK RE-ORDER ---
+            st.markdown("**Atur Ulang Urutan Server**")
+            st.info("Seret dan lepas baris untuk mengubah urutan server pada link yang akan dihasilkan.", icon="↕️")
+            
+            # Buat DataFrame dari urutan server saat ini
+            df = pd.DataFrame({"Server": st.session_state.single_server_order})
+
+            # Gunakan st.data_editor untuk memungkinkan re-ordering
+            edited_df = st.data_editor(
+                df,
+                hide_index=True,
+                use_container_width=True,
+                num_rows="dynamic", # Memungkinkan penghapusan server jika diperlukan
+                key="server_order_editor"
+            )
+
+            # Ambil urutan baru dari editor
+            new_server_order = edited_df["Server"].tolist()
+            
+            # Perbarui urutan di session state
+            st.session_state.single_server_order = new_server_order
+            # --- AKHIR BLOK BARU ---
+            
             st.divider()
 
             if st.button("🚀 Generate HTML"):
                 st.session_state.single_final_html = generate_single_output(
                     st.session_state.single_data,
-                    list(st.session_state.single_data.keys()),
-                    st.session_state.single_server_order
+                    selected_resolutions, # Menggunakan urutan resolusi dari multiselect
+                    st.session_state.single_server_order # Menggunakan urutan server yang sudah diatur
                 )
 
             if st.session_state.single_final_html:

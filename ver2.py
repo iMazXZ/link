@@ -96,7 +96,36 @@ def generate_batch_output(data, episode_range, resolutions, server_order, use_up
 
 # =============================================================================
 # STATE INISIALISASI
-# ... (kode state tetap sama) ...
+# =============================================================================
+
+# State untuk Tab 1
+if 'serial_data' not in st.session_state:
+    st.session_state.serial_data = {}
+if 'serial_final_txt' not in st.session_state:
+    st.session_state.serial_final_txt = ""
+
+# State untuk Tab 2
+if 'single_data' not in st.session_state:
+    st.session_state.single_data = {}
+if 'single_server_order' not in st.session_state:
+    st.session_state.single_server_order = []
+if 'single_final_html' not in st.session_state:
+    st.session_state.single_final_html = ""
+if 'reset_single' not in st.session_state:
+    st.session_state.reset_single = False
+
+# State untuk Tab 3 (Batch Drakor)
+if 'batch_data' not in st.session_state:
+    st.session_state.batch_data = {}
+if 'batch_server_order' not in st.session_state:
+    st.session_state.batch_server_order = []
+if 'batch_final_html' not in st.session_state:
+    st.session_state.batch_final_html = ""
+if 'reset_batch' not in st.session_state:
+    st.session_state.reset_batch = False
+
+# =============================================================================
+# UI UTAMA
 # =============================================================================
 
 st.set_page_config(layout="wide", page_title="Universal Link Generator")
@@ -114,7 +143,6 @@ tab1, tab2, tab3 = st.tabs(["Bentuk Link Ringkas", "Bentuk Link Drakor", "Link B
 # =============================================================================
 with tab1:
     st.header("Mode Bentuk Link Ringkas")
-    # ... (kode input Tab 1 tetap sama) ...
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Masukan Data Disini")
@@ -176,7 +204,6 @@ with tab1:
 # =============================================================================
 with tab2:
     st.header("Mode Bentuk Link Drakor")
-    # ... (kode input Tab 2 tetap sama) ...
     if st.session_state.get('reset_single', False):
         st.session_state.update({"sb_server_single": SERVER_OPTIONS[0], "txt_server_single": "", "link_single": "", "reset_single": False})
     col1, col2 = st.columns(2)
@@ -204,7 +231,6 @@ with tab2:
         st.subheader("Pengaturan & Hasil")
         if st.session_state.get('single_data'):
             st.markdown("**Daftar & Pengaturan Server**")
-            # ... (kode pengaturan server Tab 2 tetap sama) ...
             server_list = list(st.session_state.single_server_order)
             for i, s_name in enumerate(server_list):
                 control_cols = st.columns([0.7, 0.1, 0.1, 0.1])
@@ -256,7 +282,6 @@ with tab2:
 # =============================================================================
 with tab3:
     st.header("Mode Link Batch Drakor")
-    # ... (kode input Tab 3 tetap sama) ...
     if st.session_state.get('reset_batch', False):
         st.session_state.update({"sb_server_batch": SERVER_OPTIONS[0], "txt_server_batch": "", "batch_links_text": "", "reset_batch": False})
     col1, col2 = st.columns(2)
@@ -294,7 +319,6 @@ with tab3:
         st.subheader("Pengaturan & Hasil")
         if st.session_state.get('batch_data'):
             st.markdown("**Daftar & Pengaturan Server**")
-            # ... (kode pengaturan server Tab 3 tetap sama) ...
             server_list = list(st.session_state.batch_server_order)
             for i, s_name in enumerate(server_list):
                 control_cols = st.columns([0.7, 0.1, 0.1, 0.1])

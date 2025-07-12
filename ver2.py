@@ -57,13 +57,13 @@ def generate_batch_output(data, episode_range, resolutions, server_order):
         html_lines.append(f'<strong>Episode {ep_num}</strong>')
         
         # Urutkan resolusi sesuai dengan input pengguna
-        sorted_resolutions = [res for res in resolutions if res in data[ep_num]]
+        sorted_resolutions = [res for res in resolutions if res in data.get(ep_num, {})]
 
         for res in sorted_resolutions:
             link_parts = []
             # Gunakan urutan server yang sudah diatur
             for server in server_order:
-                if server in data[ep_num][res]:
+                if server in data.get(ep_num, {}).get(res, {}):
                     url = data[ep_num][res][server]
                     link_parts.append(f'<a href="{url}">{server}</a>')
             
@@ -102,10 +102,8 @@ if 'batch_server_order' not in st.session_state:
     st.session_state.batch_server_order = []
 if 'batch_final_html' not in st.session_state:
     st.session_state.batch_final_html = ""
-if 'batch_episode_range' not in st.session_state:
-    st.session_state.batch_episode_range = []
-if 'batch_resolutions' not in st.session_state:
-    st.session_state.batch_resolutions = []
+if 'reset_batch' not in st.session_state:
+    st.session_state.reset_batch = False
 
 
 # =============================================================================
@@ -288,13 +286,19 @@ with tab2:
 # =============================================================================
 with tab3:
     st.header("Mode Link Batch Drakor")
-    st.info("Gunakan mode ini untuk membuat daftar link untuk banyak episode sekaligus dengan format Drakor.")
+    st.info("Gunakan mode ini untuk menambahkan server satu per satu untuk rentang episode.")
+
+    if st.session_state.get('reset_batch', False):
+        st.session_state.update({
+            "batch_server_name": "",
+            "batch_links_text": "",
+            "reset_batch": False
+        })
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Masukkan Data Batch")
-        
+        st.subheader("1. Atur Episode & Resolusi")
         c1, c2 = st.columns(2)
         start_ep = c1.number_input("Mulai dari Episode", min_value=1, value=1, step=1, key="batch_start")
         end_ep = c2.number_input("Sampai Episode", min_value=start_ep, value=start_ep, step=1, key="batch_end")
@@ -306,77 +310,87 @@ with tab3:
             default=["480p", "720p"],
             key="batch_res"
         )
-        
-        servers_text = st.text_input("Nama Server (pisahkan dengan koma)", placeholder="MIRRORED, VIDGUARD", key="batch_servers").strip().upper()
+        st.divider()
 
+        st.subheader("2. Tambah Server & Link")
+        server_name = st.text_input("Nama Server", placeholder="MIRRORED", key="batch_server_name").strip().upper()
         links_text = st.text_area(
-            "Tempel semua link di sini (1 link per baris)",
-            placeholder="Link Ep1 480p Server1\nLink Ep1 480p Server2\nLink Ep1 720p Server1\nLink Ep1 720p Server2\nLink Ep2 480p Server1\n...",
-            height=250
+            "Tempel link untuk server ini (1 link per baris)",
+            placeholder=f"Link Ep{start_ep} {resolutions[0] if resolutions else ''}\nLink Ep{start_ep} {resolutions[1] if len(resolutions)>1 else ''}\n...",
+            key="batch_links_text",
+            height=200
         )
 
-        if st.button("⚙️ Proses & Simpan Data Batch", type="primary"):
+        if st.button("➕ Tambah Data Batch", type="primary"):
             links = [link.strip() for link in links_text.splitlines() if link.strip()]
-            servers = [s.strip() for s in servers_text.split(',') if s.strip()]
             num_eps = (end_ep - start_ep) + 1
             
-            if not all([links, servers, resolutions, num_eps > 0]):
-                st.warning("Pastikan semua field terisi dengan benar.")
+            if not all([server_name, links, resolutions, num_eps > 0]):
+                st.warning("Pastikan Nama Server, Resolusi, dan Link terisi dengan benar.")
             else:
-                expected_links = num_eps * len(resolutions) * len(servers)
+                expected_links = num_eps * len(resolutions)
                 if len(links) != expected_links:
                     st.error(f"Jumlah link tidak sesuai. Diperlukan: {expected_links}, Disediakan: {len(links)}.")
                 else:
-                    st.session_state.batch_data = {}
-                    st.session_state.batch_server_order = servers
-                    st.session_state.batch_resolutions = resolutions
-                    st.session_state.batch_episode_range = range(start_ep, end_ep + 1)
-                    
                     link_idx = 0
                     for ep in range(start_ep, end_ep + 1):
-                        st.session_state.batch_data[ep] = {}
+                        if ep not in st.session_state.batch_data:
+                            st.session_state.batch_data[ep] = {}
                         for res in resolutions:
-                            st.session_state.batch_data[ep][res] = {}
-                            for server in servers:
-                                st.session_state.batch_data[ep][res][server] = links[link_idx]
-                                link_idx += 1
-                    st.success(f"Data untuk Episode {start_ep}-{end_ep} berhasil diproses dan disimpan!")
+                            if res not in st.session_state.batch_data[ep]:
+                                st.session_state.batch_data[ep][res] = {}
+                            st.session_state.batch_data[ep][res][server_name] = links[link_idx]
+                            link_idx += 1
+                    
+                    if server_name not in st.session_state.batch_server_order:
+                        st.session_state.batch_server_order.append(server_name)
+                    
+                    st.success(f"Server '{server_name}' berhasil ditambahkan untuk Episode {start_ep}-{end_ep}!")
+                    st.session_state.reset_batch = True
+                    st.rerun()
 
-        if st.button("🔄 Reset Data Batch"):
+        if st.button("🔄 Reset Semua Data Batch"):
             st.session_state.batch_data = {}
             st.session_state.batch_server_order = []
             st.session_state.batch_final_html = ""
-            st.session_state.batch_episode_range = []
-            st.session_state.batch_resolutions = []
             st.rerun()
 
     with col2:
         st.subheader("Pengaturan & Hasil")
         if not st.session_state.batch_data:
-            st.write("Belum ada data batch yang diproses.")
+            st.write("Belum ada data batch yang ditambahkan.")
         else:
-            st.write(f"**Data Tersimpan:** Episode {st.session_state.batch_episode_range.start} s/d {st.session_state.batch_episode_range.stop - 1}")
-            st.write(f"**Resolusi:** {', '.join(st.session_state.batch_resolutions)}")
-            st.markdown("**Atur Ulang Urutan Server**")
-            
+            st.markdown("**Daftar & Urutan Server**")
             server_list = st.session_state.batch_server_order
-            for i, server_name in enumerate(server_list):
-                r_col1, r_col2, r_col3 = st.columns([0.7, 0.15, 0.15])
+            for i, s_name in enumerate(server_list):
+                r_col1, r_col2, r_col3, r_col4 = st.columns([0.6, 0.15, 0.15, 0.1])
                 with r_col1:
-                    st.text_input("Server", server_name, key=f"batch_server_name_{i}", disabled=True, label_visibility="collapsed")
+                    st.text_input("Server", s_name, key=f"batch_server_display_{i}", disabled=True, label_visibility="collapsed")
                 with r_col2:
                     if st.button("⬆️", key=f"batch_up_{i}", use_container_width=True, disabled=(i == 0)):
                         server_list.insert(i - 1, server_list.pop(i)); st.rerun()
                 with r_col3:
                     if st.button("⬇️", key=f"batch_down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
                         server_list.insert(i + 1, server_list.pop(i)); st.rerun()
+                with r_col4:
+                    if st.button("🗑️", key=f"batch_del_{i}", use_container_width=True):
+                        server_to_delete = server_list.pop(i)
+                        for ep_data in st.session_state.batch_data.values():
+                            for res_data in ep_data.values():
+                                if server_to_delete in res_data:
+                                    del res_data[server_to_delete]
+                        st.rerun()
             st.divider()
 
             if st.button("🚀 Generate Batch HTML"):
+                episode_range = range(
+                    st.session_state.get('batch_start', 1), 
+                    st.session_state.get('batch_end', 1) + 1
+                )
                 st.session_state.batch_final_html = generate_batch_output(
                     st.session_state.batch_data,
-                    st.session_state.batch_episode_range,
-                    st.session_state.batch_resolutions,
+                    episode_range,
+                    st.session_state.get('batch_res', []),
                     st.session_state.batch_server_order
                 )
 

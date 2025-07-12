@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+# import pandas as pd # <-- Dihapus karena tidak lagi digunakan
 
 # =============================================================================
 # FUNGSI-FUNGSI HELPER
@@ -142,14 +142,12 @@ with tab2:
     st.header("Mode Bentuk Link Drakor")
     st.info("Gunakan mode ini untuk membuat daftar link dengan format Drakor berdasarkan resolusi dan server.")
 
-    # Reset form input jika diperlukan
     if st.session_state.reset_single:
         st.session_state.update({
             "server_single": "",
             "link_single": "",
             "reset_single": False
         })
-        # Tidak perlu me-rerun di sini agar tidak mengganggu alur
 
     col1, col2 = st.columns(2)
 
@@ -195,7 +193,6 @@ with tab2:
 
                 st.success(f"Server '{server_name_single}' berhasil ditambahkan.")
                 
-                # Set flag untuk reset input dan rerun
                 st.session_state.reset_single = True
                 st.rerun()
 
@@ -210,36 +207,49 @@ with tab2:
         if not st.session_state.single_data:
             st.write("Belum ada data yang dimasukkan.")
         else:
-            # --- BLOK BARU UNTUK RE-ORDER ---
-            st.markdown("**Atur Ulang Urutan Server**")
-            st.info("Seret dan lepas baris untuk mengubah urutan server pada link yang akan dihasilkan.", icon="↕️")
+            # --- BLOK BARU UNTUK RE-ORDER DENGAN TOMBOL ---
+            st.markdown("**Atur Urutan Server**")
             
-            # Buat DataFrame dari urutan server saat ini
-            df = pd.DataFrame({"Server": st.session_state.single_server_order})
+            server_list = st.session_state.single_server_order
+            for i, server_name in enumerate(server_list):
+                r_col1, r_col2, r_col3, r_col4 = st.columns([0.6, 0.15, 0.15, 0.1])
+                
+                with r_col1:
+                    st.text_input(
+                        label="Server", 
+                        value=server_name, 
+                        key=f"server_name_{i}", 
+                        disabled=True, 
+                        label_visibility="collapsed"
+                    )
 
-            # Gunakan st.data_editor untuk memungkinkan re-ordering
-            edited_df = st.data_editor(
-                df,
-                hide_index=True,
-                use_container_width=True,
-                num_rows="dynamic", # Memungkinkan penghapusan server jika diperlukan
-                key="server_order_editor"
-            )
+                with r_col2:
+                    if st.button("⬆️ Naik", key=f"up_{i}", use_container_width=True, disabled=(i == 0)):
+                        server_list.insert(i - 1, server_list.pop(i))
+                        st.rerun()
+                
+                with r_col3:
+                    if st.button("⬇️ Turun", key=f"down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
+                        server_list.insert(i + 1, server_list.pop(i))
+                        st.rerun()
 
-            # Ambil urutan baru dari editor
-            new_server_order = edited_df["Server"].tolist()
-            
-            # Perbarui urutan di session state
-            st.session_state.single_server_order = new_server_order
-            # --- AKHIR BLOK BARU ---
+                with r_col4:
+                    if st.button("🗑️", key=f"del_{i}", use_container_width=True):
+                        server_to_delete = server_list.pop(i)
+                        # Hapus juga data link yang terkait dengan server ini
+                        for res_key in st.session_state.single_data:
+                            if server_to_delete in st.session_state.single_data[res_key]:
+                                del st.session_state.single_data[res_key][server_to_delete]
+                        st.rerun()
             
             st.divider()
+            # --- AKHIR BLOK BARU ---
 
             if st.button("🚀 Generate HTML"):
                 st.session_state.single_final_html = generate_single_output(
                     st.session_state.single_data,
-                    selected_resolutions, # Menggunakan urutan resolusi dari multiselect
-                    st.session_state.single_server_order # Menggunakan urutan server yang sudah diatur
+                    selected_resolutions,
+                    st.session_state.single_server_order
                 )
 
             if st.session_state.single_final_html:

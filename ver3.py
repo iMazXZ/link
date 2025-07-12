@@ -3,7 +3,7 @@ import requests
 import time
 
 # =============================================================================
-# FUNGSI-FUNGSI HELPER (DIPERBARUI)
+# FUNGSI-FUNGSI HELPER (DIPERBARUI DAN DISATUKAN)
 # =============================================================================
 
 def shorten_with_ouo(url, api_key):
@@ -25,7 +25,7 @@ def shorten_with_ouo(url, api_key):
         return url
 
 def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format ringkas dengan struktur data baru."""
+    """Menghasilkan output HTML format ringkas dengan opsi grouping."""
     txt_lines = []
     with st.spinner('Memproses link...'):
         for ep_num in episode_range:
@@ -53,32 +53,19 @@ def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_
                 txt_lines.append(f'<li><strong>EPISODE {ep_num}</strong> {" ".join(link_parts)}</li>')
     return "\n".join(txt_lines)
 
-def generate_output_drakor_center(data, resolutions, servers, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format drakor center dengan struktur data baru."""
+def generate_output_drakor(data, episode_range, resolutions, servers, use_uppercase=True, is_centered=False, shorten_servers=[], api_key=""):
+    """Menghasilkan output HTML format Drakor (mendukung batch dan single, serta perataan)."""
     html_lines = []
-    with st.spinner('Memproses dan memperpendek link...'):
-        for res in resolutions:
-            if res not in data: continue
-            link_parts = []
-            for server in servers:
-                if server in data.get(res, {}):
-                    url = data[res][server]
-                    if server in shorten_servers:
-                        url = shorten_with_ouo(url, api_key)
-                    link_parts.append(f'<a href="{url}">{server}</a>')
-            if link_parts:
-                links_string = " | ".join(link_parts)
-                line = f'<p style="text-align: center;"><strong>{res} (Hardsub Indo):</strong> {links_string}</p>'
-                html_lines.append(line)
-    return "\n".join(html_lines)
-
-def generate_output_batch_drakor(data, episode_range, resolutions, servers, use_uppercase=True, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format batch drakor dengan struktur data baru."""
-    html_lines = []
+    style_attr = ' style="text-align: center;"' if is_centered else ''
+    
     with st.spinner('Memproses dan memperpendek link...'):
         for ep_num in episode_range:
             if ep_num not in data: continue
-            html_lines.append(f'<strong>EPISODE {ep_num}</strong>')
+            
+            # Tambahkan judul episode hanya jika dalam mode batch
+            if len(episode_range) > 1:
+                html_lines.append(f'<strong>EPISODE {ep_num}</strong>')
+
             for res in resolutions:
                 if res not in data.get(ep_num, {}): continue
                 link_parts = []
@@ -91,15 +78,16 @@ def generate_output_batch_drakor(data, episode_range, resolutions, servers, use_
                         link_parts.append(f'<a href="{url}">{display_server}</a>')
                 if link_parts:
                     links_string = " | ".join(link_parts)
-                    line = f'<p>{res} (Hardsub Indo) : {links_string}</p>'
+                    line = f'<p{style_attr}><strong>{res} (Hardsub Indo):</strong> {links_string}</p>'
                     html_lines.append(line)
     return "\n".join(html_lines)
+
 
 # =============================================================================
 # STATE INISIALISASI
 # =============================================================================
 if 'main_data' not in st.session_state:
-    st.session_state.main_data = {} # Struktur baru: {ep: {res: {server: link}}}
+    st.session_state.main_data = {} # Struktur: {ep: {res: {server: link}}}
 if 'server_order' not in st.session_state:
     st.session_state.server_order = []
 if 'final_html' not in st.session_state:
@@ -221,10 +209,10 @@ with col2:
                                 link_key = f"link_edit_{i}_{ep_num}_{res}"
                                 if link_key in st.session_state:
                                     st.session_state.main_data[ep_num][res][s_name] = st.session_state[link_key]
-                    if new_server_name != s_name:
+                    if new_server_name != s_name and new_server_name:
                         st.session_state.server_order[i] = new_server_name
                         for ep_data in st.session_state.main_data.values():
-                            for res_data in ep_data.values():
+                            for res, res_data in ep_data.items():
                                 if s_name in res_data:
                                     res_data[new_server_name] = res_data.pop(s_name)
                     st.success(f"Perubahan untuk server '{s_name}' telah disimpan!"); st.rerun()
@@ -232,32 +220,28 @@ with col2:
         st.divider()
 
         st.subheader("Pilih Format Output")
-        output_format = st.radio(
-            "Pilih format HTML yang akan dihasilkan:",
-            ["Format Batch Drakor (Default)", "Format Drakor - Center", "Format Ringkas"],
-            key="output_format"
-        )
+        output_format = st.radio("Pilih format HTML:", ["Format Drakor", "Format Ringkas"], key="output_format")
         
-        use_uppercase = True
-        grouping_style = "Berdasarkan Server"
-        if output_format == "Format Batch Drakor (Default)":
-            use_uppercase = st.toggle("Jadikan nama server uppercase", value=True, key="uppercase_toggle")
-        elif output_format == "Format Ringkas":
+        # Opsi kondisional berdasarkan format yang dipilih
+        if output_format == "Format Drakor":
+            c1, c2 = st.columns(2)
+            use_uppercase = c1.toggle("Server Uppercase", value=True, key="uppercase_toggle")
+            is_centered = c2.toggle("Rata Tengah", value=False, key="center_align_toggle")
+        else: # Format Ringkas
             grouping_style = st.radio("Urutkan berdasarkan:", ["Server", "Resolusi"], horizontal=True, key="grouping_style")
 
         if st.button("🚀 Generate HTML", type="primary"):
             final_html = ""
-            episode_keys = sorted(st.session_state.main_data.keys())
-            episode_range = range(episode_keys[0], episode_keys[-1] + 1)
             active_resolutions = st.session_state.get('resolutions', [])
             
             if output_format == "Format Ringkas":
+                episode_keys = sorted(st.session_state.main_data.keys())
+                episode_range = range(episode_keys[0], episode_keys[-1] + 1)
                 final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, servers_to_shorten, ouo_api_key)
-            elif output_format == "Format Drakor - Center":
-                single_data_for_gen = st.session_state.main_data.get(1, {})
-                final_html = generate_output_drakor_center(single_data_for_gen, active_resolutions, st.session_state.server_order, servers_to_shorten, ouo_api_key)
-            else: # "Format Batch Drakor (Default)"
-                final_html = generate_output_batch_drakor(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase, servers_to_shorten, ouo_api_key)
+            else: # Format Drakor
+                input_mode = st.session_state.get('input_mode')
+                episode_range = [1] if input_mode == "Single Link" else range(st.session_state.start_ep, st.session_state.end_ep + 1)
+                final_html = generate_output_drakor(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase, is_centered, servers_to_shorten, ouo_api_key)
             
             st.session_state.final_html = final_html
 

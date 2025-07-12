@@ -1,185 +1,56 @@
 import streamlit as st
 
-# Custom CSS for light theme redesign with layout fixes
-st.markdown("""
+# =============================================================================
+# KONFIGURASI HALAMAN
+# =============================================================================
+st.set_page_config(
+    layout="wide",
+    page_title="Universal Link Generator",
+    theme="light"  # Menggunakan tema light mode
+)
+
+# Custom CSS untuk memastikan tampilan light mode konsisten
+st.markdown(
+    """
     <style>
-    /* General body styling */
     body {
-        background-color: #f5f7fa;
-        color: #2d3748;
-        font-family: 'Inter', sans-serif;
+        background-color: #ffffff !important;
+        color: #000000 !important;
     }
-    
-    /* Main container */
-    .stApp {
-        background-color: #ffffff;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        padding: 2rem;
-        max-width: 1200px;
-        margin: 0 auto;
+    .stTextInput input, .stTextArea textarea, .stNumberInput input, .stSelectbox select {
+        background-color: white !important;
+        color: black !important;
     }
-    
-    /* Title styling */
-    h1 {
-        color: #1a73e8;
-        font-weight: 700;
-        text-align: center;
-        margin-bottom: 1.5rem;
+    .stTextInput label, .stTextArea label, .stNumberInput label, .stSelectbox label {
+        color: black !important;
     }
-    
-    /* Header styling */
-    h2 {
-        color: #2d3748;
-        font-weight: 600;
-        border-bottom: 2px solid #e2e8f0;
-        padding-bottom: 0.5rem;
+    .st-bb, .st-at, .st-ae, .st-af, .st-ag, .st-ah, .st-ai, .st-aj {
+        background-color: white !important;
     }
-    
-    /* Subheader styling */
-    h3 {
-        color: #4a5568;
-        font-weight: 500;
-    }
-    
-    /* Tabs styling */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #e2e8f0;
-        border-radius: 8px;
-        padding: 0.5rem;
-        justify-content: center;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #ffffff;
-        color: #4a5568;
-        border-radius: 6px;
-        margin: 0.2rem;
-        padding: 0.5rem 1rem;
-        font-weight: 500;
-        min-width: 150px;
-        text-align: center;
-    }
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        background-color: #1a73e8;
-        color: #ffffff;
-        font-weight: 600;
-    }
-    
-    /* Buttons */
-    .stButton>button {
-        background-color: #1a73e8;
-        color: white;
-        border-radius: 6px;
-        padding: 0.5rem 1rem;
-        border: none;
-        font-weight: 500;
-        transition: background-color 0.2s;
-    }
-    .stButton>button:hover {
-        background-color: #1557b0;
-        color: white;
-    }
-    
-    /* Reset button specific styling */
-    .stButton>button[kind="secondary"] {
-        background-color: #e53e3e;
-        color: white;
-    }
-    .stButton>button[kind="secondary"]:hover {
-        background-color: #c53030;
-    }
-    
-    /* Text inputs and text areas */
-    .stTextInput input, .stTextArea textarea {
-        background-color: #f7fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        color: #2d3748;
-        padding: 0.5rem;
-    }
-    
-    /* Multiselect */
-    .stMultiSelect [data-baseweb="select"] {
-        background-color: #f7fafc;
-        border-radius: 6px;
-        border: 1px solid #e2e8f0;
-        padding: 0.25rem;
-    }
-    .stMultiSelect [data-baseweb="tag"] {
-        background-color: #e2e8f0;
-        color: #2d3748;
-        border-radius: 4px;
-        padding: 0.1rem 0.5rem;
-        margin: 0.1rem;
-    }
-    
-    /* Info and warning boxes */
     .stAlert {
-        border-radius: 6px;
-        background-color: #e6f3ff;
-        color: #2d3748;
-        border: 1px solid #bfdbfe;
-        padding: 0.75rem;
+        background-color: #f0f2f6 !important;
     }
-    .stAlert[kind="warning"] {
-        background-color: #fefcbf;
-        border: 1px solid #f6e05e;
+    .stButton button {
+        background-color: #f0f2f6 !important;
+        color: black !important;
+        border: 1px solid #d0d0d0 !important;
     }
-    .stAlert[kind="success"] {
-        background-color: #c6f6d5;
-        border: 1px solid #68d391;
+    .stRadio label {
+        color: black !important;
     }
-    .stAlert[kind="error"] {
-        background-color: #fed7d7;
-        border: 1px solid #f56565;
+    .stRadio [role="radiogroup"] {
+        background-color: white !important;
     }
-    
-    /* Divider */
-    .stDivider {
-        background-color: #e2e8f0;
-        margin: 1rem 0;
-    }
-    
-    /* Code block */
-    .stCodeBlock {
-        background-color: #f7fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        padding: 1rem;
-    }
-    
-    /* JSON viewer */
     .stJson {
-        background-color: #f7fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        padding: 1rem;
+        background-color: white !important;
     }
-    
-    /* Live preview section */
-    .stMarkdown h3 {
-        color: #1a73e8;
-        font-weight: 600;
-    }
-    
-    /* Columns */
-    .stColumn {
-        padding: 1rem;
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-    }
-    
-    /* Ensure consistent spacing and alignment */
-    .stApp > div {
-        margin: 0 auto;
-        width: 100%;
-    }
-    .element-container {
-        margin-bottom: 1rem;
+    .stTabs [aria-selected="true"] {
+        color: black !important;
     }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
 # =============================================================================
 # FUNGSI-FUNGSI HELPER
@@ -189,13 +60,13 @@ def generate_serial_output(episodes_data, grouping_style, resolutions):
     txt_lines = []
     for ep_num in sorted(episodes_data.keys()):
         links = []
-        if "Server" in grouping_style:
+        if "Berdasarkan Server" in grouping_style:
             for server in sorted(episodes_data[ep_num].keys()):
                 for res in resolutions:
                     if res in episodes_data[ep_num][server]:
                         link = episodes_data[ep_num][server][res]
                         links.append(f'<a href="{link["url"]}" rel="nofollow" data-wpel-link="external">{link["label"]}</a>')
-        elif "Resolusi" in grouping_style:
+        elif "Berdasarkan Resolusi" in grouping_style:
             for res in resolutions:
                 for server in sorted(episodes_data[ep_num].keys()):
                     if res in episodes_data[ep_num][server]:
@@ -241,7 +112,6 @@ if 'reset_single' not in st.session_state:
 # UI UTAMA
 # =============================================================================
 
-st.set_page_config(layout="wide", page_title="Universal Link Generator")
 st.title("Universal Link Generator")
 
 tab1, tab2 = st.tabs([" Bentuk Link Ringkas", "Bentuk Link Drakor"])

@@ -47,7 +47,7 @@ def generate_single_output(data, resolutions, servers):
             html_lines.append(line)
     return "\n".join(html_lines)
 
-def generate_batch_output(data, episode_range, resolutions, server_order):
+def generate_batch_output(data, episode_range, resolutions, server_order, use_uppercase=True):
     """Menghasilkan output HTML untuk format batch drakor."""
     html_lines = []
     for ep_num in episode_range:
@@ -65,7 +65,8 @@ def generate_batch_output(data, episode_range, resolutions, server_order):
             for server in server_order:
                 if server in data.get(ep_num, {}).get(res, {}):
                     url = data[ep_num][res][server]
-                    link_parts.append(f'<a href="{url}">{server}</a>')
+                    display_server = server.upper() if use_uppercase else server
+                    link_parts.append(f'<a href="{url}">{display_server}</a>')
             
             if link_parts:
                 links_string = " | ".join(link_parts)
@@ -313,8 +314,7 @@ with tab3:
         st.divider()
 
         st.subheader("2. Tambah Server & Link")
-        server_name_input = st.text_input("Nama Server", placeholder="MIRRORED", key="batch_server_name").strip()
-        use_uppercase = st.toggle("Jadikan nama server uppercase", value=True, key="batch_uppercase_toggle")
+        server_name = st.text_input("Nama Server", placeholder="MIRRORED", key="batch_server_name").strip()
         
         links_text = st.text_area(
             "Tempel link untuk server ini (1 link per baris)",
@@ -324,11 +324,6 @@ with tab3:
         )
 
         if st.button("➕ Tambah Data Batch", type="primary"):
-            if use_uppercase:
-                server_name = server_name_input.upper()
-            else:
-                server_name = server_name_input
-
             links = [link.strip() for link in links_text.splitlines() if link.strip()]
             num_eps = (end_ep - start_ep) + 1
             
@@ -389,6 +384,8 @@ with tab3:
                         st.rerun()
             st.divider()
 
+            use_uppercase_output = st.toggle("Jadikan nama server uppercase", value=True, key="batch_uppercase_output_toggle")
+
             if st.button("🚀 Generate Batch HTML"):
                 episode_range = range(
                     st.session_state.get('batch_start', 1), 
@@ -398,7 +395,8 @@ with tab3:
                     st.session_state.batch_data,
                     episode_range,
                     st.session_state.get('batch_res', []),
-                    st.session_state.batch_server_order
+                    st.session_state.batch_server_order,
+                    use_uppercase=use_uppercase_output
                 )
 
             if st.session_state.batch_final_html:

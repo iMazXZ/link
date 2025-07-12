@@ -362,28 +362,71 @@ with tab3:
         if not st.session_state.batch_data:
             st.write("Belum ada data batch yang ditambahkan.")
         else:
-            st.markdown("**Daftar & Urutan Server**")
-            server_list = st.session_state.batch_server_order
+            st.markdown("**Daftar & Pengaturan Server**")
+            
+            # Loop through a copy of the list to avoid issues while modifying
+            server_list = list(st.session_state.batch_server_order)
             for i, s_name in enumerate(server_list):
-                r_col1, r_col2, r_col3, r_col4 = st.columns([0.6, 0.15, 0.15, 0.1])
-                with r_col1:
-                    st.text_input("Server", s_name, key=f"batch_server_display_{i}", disabled=True, label_visibility="collapsed")
-                with r_col2:
-                    if st.button("⬆️", key=f"batch_up_{i}", use_container_width=True, disabled=(i == 0)):
-                        server_list.insert(i - 1, server_list.pop(i)); st.rerun()
-                with r_col3:
-                    if st.button("⬇️", key=f"batch_down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
-                        server_list.insert(i + 1, server_list.pop(i)); st.rerun()
-                with r_col4:
-                    if st.button("🗑️", key=f"batch_del_{i}", use_container_width=True):
-                        server_to_delete = server_list.pop(i)
-                        for ep_data in st.session_state.batch_data.values():
-                            for res_data in ep_data.values():
-                                if server_to_delete in res_data:
-                                    del res_data[server_to_delete]
-                        st.rerun()
-            st.divider()
+                with st.expander(f"Server: {s_name}"):
+                    # --- Kontrol di dalam Expander ---
+                    
+                    # 1. Tombol Aksi (Naik, Turun, Hapus)
+                    btn_cols = st.columns([0.15, 0.15, 0.7])
+                    with btn_cols[0]:
+                        if st.button("⬆️ Naik", key=f"batch_up_{i}", use_container_width=True, disabled=(i == 0)):
+                            st.session_state.batch_server_order.insert(i - 1, st.session_state.batch_server_order.pop(i)); st.rerun()
+                    with btn_cols[1]:
+                        if st.button("⬇️ Turun", key=f"batch_down_{i}", use_container_width=True, disabled=(i == len(server_list) - 1)):
+                            st.session_state.batch_server_order.insert(i + 1, st.session_state.batch_server_order.pop(i)); st.rerun()
+                    with btn_cols[2]:
+                        if st.button("🗑️ Hapus Server Ini", key=f"batch_del_{i}", use_container_width=True):
+                            server_to_delete = st.session_state.batch_server_order.pop(i)
+                            for ep_data in st.session_state.batch_data.values():
+                                for res_data in ep_data.values():
+                                    if server_to_delete in res_data:
+                                        del res_data[server_to_delete]
+                            st.rerun()
 
+                    st.markdown("---")
+
+                    # 2. Edit Nama & Link
+                    new_server_name = st.text_input("Edit Nama Server", value=s_name, key=f"edit_name_{i}")
+                    st.write("**Edit Link:**")
+
+                    for ep_num in range(st.session_state.get('batch_start', 1), st.session_state.get('batch_end', 1) + 1):
+                        for res in st.session_state.get('batch_res', []):
+                            if ep_num in st.session_state.batch_data and res in st.session_state.batch_data[ep_num] and s_name in st.session_state.batch_data[ep_num][res]:
+                                st.text_input(
+                                    label=f"Ep {ep_num} - {res}", 
+                                    value=st.session_state.batch_data[ep_num][res][s_name],
+                                    key=f"link_edit_{i}_{ep_num}_{res}"
+                                )
+                    
+                    if st.button("💾 Simpan Perubahan Server Ini", key=f"save_changes_{i}", use_container_width=True):
+                        # Update Links
+                        for ep_num in range(st.session_state.get('batch_start', 1), st.session_state.get('batch_end', 1) + 1):
+                            for res in st.session_state.get('batch_res', []):
+                                link_key = f"link_edit_{i}_{ep_num}_{res}"
+                                if link_key in st.session_state:
+                                    st.session_state.batch_data[ep_num][res][s_name] = st.session_state[link_key]
+
+                        # Update Name (Lakukan setelah update link untuk menjaga referensi)
+                        if new_server_name != s_name:
+                            # Update di list order
+                            st.session_state.batch_server_order[i] = new_server_name
+                            # Update di data dictionary
+                            for ep_data in st.session_state.batch_data.values():
+                                for res_data in ep_data.values():
+                                    if s_name in res_data:
+                                        res_data[new_server_name] = res_data.pop(s_name)
+                        
+                        st.success(f"Perubahan untuk server '{s_name}' telah disimpan!")
+                        st.rerun()
+
+
+            st.divider()
+            
+            # --- Pengaturan Output Final ---
             use_uppercase_output = st.toggle("Jadikan nama server uppercase", value=True, key="batch_uppercase_output_toggle")
 
             if st.button("🚀 Generate Batch HTML"):

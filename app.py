@@ -96,7 +96,7 @@ with tab1:
                         link_index = i * len(resolutions) + j
                         st.session_state.serial_data[ep][server_name_serial][res] = {"url": links[link_index], "label": f"{server_name_serial} {res}"}
                 st.success(f"Server '{server_name_serial}' ditambahkan untuk Episode {start_episode} s/d {start_episode + count - 1}.")
-    
+
     with col2:
         st.subheader("Hasil Generator Data")
         if not st.session_state.serial_data:
@@ -180,7 +180,7 @@ with tab2:
 
                 # ✅ Set flag untuk reset input & rerun
                 st.session_state.reset_single = True
-                st.experimental_rerun()
+                st.rerun()
 
         if st.button("🔄 Reset Data Konten Tunggal"):
             st.session_state.single_data = {}

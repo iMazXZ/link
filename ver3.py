@@ -24,14 +24,16 @@ def shorten_with_ouo(url, api_key):
         st.error(f"Error koneksi saat menghubungi ouo.io: {e}")
         return url
 
-def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format ringkas dengan opsi grouping."""
+def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, use_uppercase=True, shorten_servers=[], api_key=""):
+    """Menghasilkan output HTML format ringkas dengan opsi grouping dan uppercase."""
     txt_lines = []
     with st.spinner('Memproses link...'):
         for ep_num in episode_range:
             if ep_num not in data: continue
             
             link_parts = []
+            display_server = ""
+            # Logika pengelompokan
             if "Server" in grouping_style:
                 for server in servers:
                     for res in resolutions:
@@ -39,7 +41,8 @@ def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_
                             url = data[ep_num][res][server]
                             if server in shorten_servers:
                                 url = shorten_with_ouo(url, api_key)
-                            link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{server.upper()} {res}</a>')
+                            display_server = server.upper() if use_uppercase else server
+                            link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server} {res}</a>')
             else: # "Resolusi"
                 for res in resolutions:
                     for server in servers:
@@ -47,7 +50,8 @@ def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_
                             url = data[ep_num][res][server]
                             if server in shorten_servers:
                                 url = shorten_with_ouo(url, api_key)
-                            link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{server.upper()} {res}</a>')
+                            display_server = server.upper() if use_uppercase else server
+                            link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server} {res}</a>')
 
             if link_parts:
                 txt_lines.append(f'<li><strong>EPISODE {ep_num}</strong> {" ".join(link_parts)}</li>')
@@ -62,9 +66,7 @@ def generate_output_drakor(data, episode_range, resolutions, servers, use_upperc
         for ep_num in episode_range:
             if ep_num not in data: continue
             
-            # Tambahkan judul episode hanya jika dalam mode batch
             if len(episode_range) > 1:
-                # Terapkan style perataan ke judul episode
                 html_lines.append(f'<p{style_attr}><strong>EPISODE {ep_num}</strong></p>')
 
             for res in resolutions:
@@ -213,9 +215,9 @@ with col2:
                     if new_server_name != s_name and new_server_name:
                         st.session_state.server_order[i] = new_server_name
                         for ep_data in st.session_state.main_data.values():
-                            for res, res_data in ep_data.items():
-                                if s_name in res_data:
-                                    res_data[new_server_name] = res_data.pop(s_name)
+                            for res, res_data_inner in ep_data.items():
+                                if s_name in res_data_inner:
+                                    res_data_inner[new_server_name] = res_data_inner.pop(s_name)
                     st.success(f"Perubahan untuk server '{s_name}' telah disimpan!"); st.rerun()
 
         st.divider()
@@ -226,10 +228,12 @@ with col2:
         # Opsi kondisional berdasarkan format yang dipilih
         if output_format == "Format Drakor":
             c1, c2 = st.columns(2)
-            use_uppercase = c1.toggle("Server Uppercase", value=True, key="uppercase_toggle")
+            use_uppercase_drakor = c1.toggle("Server Uppercase", value=True, key="uppercase_drakor_toggle")
             is_centered = c2.toggle("Rata Tengah", value=False, key="center_align_toggle")
         else: # Format Ringkas
-            grouping_style = st.radio("Urutkan berdasarkan:", ["Server", "Resolusi"], horizontal=True, key="grouping_style")
+            c1, c2 = st.columns(2)
+            grouping_style = c1.radio("Urutkan berdasarkan:", ["Server", "Resolusi"], key="grouping_style")
+            use_uppercase_ringkas = c2.toggle("Server Uppercase", value=True, key="uppercase_ringkas_toggle")
 
         if st.button("🚀 Generate HTML", type="primary"):
             final_html = ""
@@ -238,11 +242,11 @@ with col2:
             if output_format == "Format Ringkas":
                 episode_keys = sorted(st.session_state.main_data.keys())
                 episode_range = range(episode_keys[0], episode_keys[-1] + 1)
-                final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, servers_to_shorten, ouo_api_key)
+                final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, use_uppercase=use_uppercase_ringkas, shorten_servers=servers_to_shorten, api_key=ouo_api_key)
             else: # Format Drakor
                 input_mode = st.session_state.get('input_mode')
                 episode_range = [1] if input_mode == "Single Link" else range(st.session_state.start_ep, st.session_state.end_ep + 1)
-                final_html = generate_output_drakor(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase, is_centered, servers_to_shorten, ouo_api_key)
+                final_html = generate_output_drakor(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase_drakor, is_centered, servers_to_shorten, ouo_api_key)
             
             st.session_state.final_html = final_html
 

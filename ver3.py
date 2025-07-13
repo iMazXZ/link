@@ -185,6 +185,7 @@ with col1:
 
     input_mode = st.radio("Pilih Mode Input", ["Batch Episode", "Single Link"], horizontal=True, key="input_mode")
     
+    stream_links_text = ""
     if input_mode == "Batch Episode":
         c1, c2 = st.columns(2)
         st.session_state.start_ep = c1.number_input("Mulai dari Episode", min_value=1, value=st.session_state.start_ep, step=1)
@@ -201,33 +202,39 @@ with col1:
 
     if st.button("+ Tambah Data", type="primary"):
         download_links = [link.strip() for link in links_text.splitlines() if link.strip()]
-        stream_links = [link.strip() for link in stream_links_text.splitlines() if link.strip()] if 'stream_links_text' in locals() else []
+        stream_links = [link.strip() for link in stream_links_text.splitlines() if link.strip()]
         num_eps = (st.session_state.end_ep - st.session_state.start_ep) + 1 if input_mode == "Batch Episode" else 1
         
-        if not all([server_name, download_links, st.session_state.resolutions]):
-            st.warning("Pastikan Nama Server, Resolusi, dan Link Download terisi.")
+        if not server_name and download_links:
+            st.warning("Nama Server Download tidak boleh kosong.")
+        elif download_links and not st.session_state.resolutions:
+             st.warning("Pilih minimal satu resolusi download.")
         elif input_mode == "Batch Episode" and stream_links and len(stream_links) != num_eps:
             st.error(f"Jumlah link streaming ({len(stream_links)}) tidak cocok dengan jumlah episode ({num_eps}).")
         else:
             expected_links = num_eps * len(st.session_state.resolutions)
-            if len(download_links) != expected_links:
+            if download_links and len(download_links) != expected_links:
                 st.error(f"Jumlah link download tidak sesuai. Diperlukan: {expected_links}, Disediakan: {len(download_links)}.")
             else:
                 link_idx, stream_idx = 0, 0
                 episode_range = range(st.session_state.start_ep, st.session_state.end_ep + 1) if input_mode == "Batch Episode" else [1]
                 for ep in episode_range:
-                    if ep not in st.session_state.main_data: st.session_state.main_data[ep] = {'download_links': {}}
+                    if ep not in st.session_state.main_data: st.session_state.main_data[ep] = {}
+                    if 'download_links' not in st.session_state.main_data[ep]: st.session_state.main_data[ep]['download_links'] = {}
+                    
                     if stream_links and stream_idx < len(stream_links):
                         st.session_state.main_data[ep]['stream_link'] = stream_links[stream_idx]
                         stream_idx += 1
                     
-                    for res in st.session_state.resolutions:
-                        if res not in st.session_state.main_data[ep]['download_links']: st.session_state.main_data[ep]['download_links'][res] = {}
-                        st.session_state.main_data[ep]['download_links'][res][server_name] = download_links[link_idx]
-                        link_idx += 1
+                    if download_links:
+                        for res in st.session_state.resolutions:
+                            if res not in st.session_state.main_data[ep]['download_links']: st.session_state.main_data[ep]['download_links'][res] = {}
+                            st.session_state.main_data[ep]['download_links'][res][server_name] = download_links[link_idx]
+                            link_idx += 1
                 
-                if server_name not in st.session_state.server_order: st.session_state.server_order.append(server_name)
-                st.success(f"Data untuk server '{server_name}' berhasil ditambahkan!"); st.session_state.reset_form = True; st.rerun()
+                        if server_name not in st.session_state.server_order: st.session_state.server_order.append(server_name)
+                
+                st.success(f"Data berhasil ditambahkan!"); st.session_state.reset_form = True; st.rerun()
 
     if st.button("🔄 Reset Semua Data"):
         st.session_state.main_data = {}; st.session_state.server_order = []; st.session_state.final_html = ""; st.rerun()
@@ -243,14 +250,20 @@ with col2:
         st.markdown("**Daftar & Pengaturan Server**")
         servers_to_shorten = []
         server_list_with_stream = ["Streaming"] + st.session_state.server_order
-        for i, s_name in enumerate(server_list_with_stream):
+        for s_name in server_list_with_stream:
             is_stream = s_name == "Streaming"
+            
+            # Jangan tampilkan 'Streaming' jika tidak ada link streaming sama sekali
+            if is_stream and not any(d.get('stream_link') for d in st.session_state.main_data.values()):
+                continue
+
             control_cols = st.columns([0.2, 0.5, 0.1, 0.1, 0.1]) if not is_stream else st.columns([0.2, 0.8])
             with control_cols[0]:
                 if st.checkbox("ouo.io", key=f"shorten_{s_name}", help=f"Perpendek link untuk {s_name}"):
                     servers_to_shorten.append(s_name)
             with control_cols[1]:
                 st.text_input("Server", value=s_name, key=f"display_name_{s_name}", disabled=True, label_visibility="collapsed")
+            
             if not is_stream:
                 idx = st.session_state.server_order.index(s_name)
                 with control_cols[2]:
@@ -267,6 +280,40 @@ with col2:
                                 for res_data in ep_data['download_links'].values():
                                     if server_to_delete in res_data: del res_data[server_to_delete]
                         st.rerun()
+            
+            with st.expander(f"Edit detail untuk {s_name}"):
+                if is_stream:
+                    st.write("**Edit Link Streaming:**")
+                    for ep_num, ep_data in st.session_state.main_data.items():
+                        if 'stream_link' in ep_data:
+                            st.text_input(label=f"Ep {ep_num} - Streaming", value=ep_data['stream_link'], key=f"edit_stream_link_{ep_num}")
+                else:
+                    new_server_name = st.text_input("Edit Nama Server", value=s_name, key=f"edit_name_{s_name}")
+                    st.write("**Edit Link Download:**")
+                    for ep_num, ep_data in st.session_state.main_data.items():
+                        if s_name in ep_data.get('download_links', {}).get(st.session_state.resolutions[0], {}):
+                             for res in st.session_state.resolutions:
+                                if res in ep_data.get('download_links', {}) and s_name in ep_data['download_links'][res]:
+                                    st.text_input(label=f"Ep {ep_num} - {res}", value=ep_data['download_links'][res][s_name], key=f"link_edit_{s_name}_{ep_num}_{res}")
+
+                if st.button("Simpan Perubahan", key=f"save_changes_{s_name}", use_container_width=True):
+                    if is_stream:
+                        for ep_num in st.session_state.main_data:
+                            st.session_state.main_data[ep_num]['stream_link'] = st.session_state[f"edit_stream_link_{ep_num}"]
+                    else:
+                        idx = st.session_state.server_order.index(s_name)
+                        for ep_num, ep_data in st.session_state.main_data.items():
+                            if s_name in ep_data.get('download_links', {}).get(st.session_state.resolutions[0], {}):
+                                for res in st.session_state.resolutions:
+                                    link_key = f"link_edit_{s_name}_{ep_num}_{res}"
+                                    if link_key in st.session_state: st.session_state.main_data[ep_num]['download_links'][res][s_name] = st.session_state[link_key]
+                        if new_server_name != s_name and new_server_name:
+                            st.session_state.server_order[idx] = new_server_name
+                            for ep_data in st.session_state.main_data.values():
+                                for res_data in ep_data.get('download_links', {}).values():
+                                    if s_name in res_data: res_data[new_server_name] = res_data.pop(s_name)
+                    st.success(f"Perubahan untuk '{s_name}' telah disimpan!"); st.rerun()
+
         st.divider()
         st.subheader("Pilih Format Output")
         output_format = st.radio("Pilih format HTML:", ["Format Streaming", "Format Drakor", "Format Ringkas"], key="output_format")

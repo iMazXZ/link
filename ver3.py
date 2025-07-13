@@ -27,46 +27,25 @@ def shorten_with_ouo(url, api_key):
         st.error(f"Error koneksi saat menghubungi ouo.io: {e}")
         return url
 
-def generate_output_streaming(data, episode_range, resolutions, servers, use_uppercase=True, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format Streaming."""
+def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, use_uppercase=True, include_streaming=False, shorten_servers=[], api_key=""):
+    """Menghasilkan output HTML format ringkas, dengan opsi menyertakan streaming."""
     txt_lines = []
     with st.spinner('Memproses link...'):
         for ep_num in episode_range:
             if ep_num not in data: continue
             
             link_parts = []
-            # 1. Tambahkan link streaming jika ada
-            stream_link = data[ep_num].get('stream_link')
-            if stream_link:
-                if "Streaming" in shorten_servers: # Gunakan "Streaming" sebagai server virtual
-                    stream_link = shorten_with_ouo(stream_link, api_key)
-                link_parts.append(f'<a href="{stream_link}">Streaming</a>')
+            
+            # 1. Tambahkan link streaming jika opsi dipilih dan link tersedia
+            if include_streaming and data[ep_num].get('stream_link'):
+                stream_url = data[ep_num]['stream_link']
+                if "Streaming" in shorten_servers:
+                    stream_url = shorten_with_ouo(stream_url, api_key)
+                link_parts.append(f'<a href="{stream_url}">Streaming</a>')
 
             # 2. Tambahkan link download
             download_links = data[ep_num].get('download_links', {})
-            for res in resolutions:
-                for server in servers:
-                    if res in download_links and server in download_links[res]:
-                        url = download_links[res][server]
-                        if server in shorten_servers:
-                            url = shorten_with_ouo(url, api_key)
-                        display_server = server.upper() if use_uppercase else server
-                        link_parts.append(f'<a href="{url}">{display_server} {res}</a>')
-
-            if link_parts:
-                txt_lines.append(f'EPISODE {ep_num} {" ".join(link_parts)}')
-    return "\n".join(txt_lines)
-
-
-def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, use_uppercase=True, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format ringkas."""
-    txt_lines = []
-    with st.spinner('Memproses link...'):
-        for ep_num in episode_range:
-            if ep_num not in data or not data[ep_num].get('download_links'): continue
-            
-            download_links = data[ep_num]['download_links']
-            link_parts = []
+            display_server = ""
             if "Server" in grouping_style:
                 for server in servers:
                     for res in resolutions:
@@ -191,6 +170,9 @@ with col1:
         st.session_state.start_ep = c1.number_input("Mulai dari Episode", min_value=1, value=st.session_state.start_ep, step=1)
         st.session_state.end_ep = c2.number_input("Sampai Episode", min_value=st.session_state.start_ep, value=st.session_state.end_ep, step=1)
         stream_links_text = st.text_area("Link Streaming (1 per baris, opsional)", key="stream_links_text", height=100)
+    else: # Single Link Mode
+        stream_links_text = st.text_input("Link Streaming (Opsional)", key="stream_links_text")
+
 
     default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
     st.session_state.resolutions = st.multiselect("Pilih Resolusi Download", options=default_resolutions, default=st.session_state.resolutions)
@@ -205,8 +187,8 @@ with col1:
         stream_links = [link.strip() for link in stream_links_text.splitlines() if link.strip()]
         num_eps = (st.session_state.end_ep - st.session_state.start_ep) + 1 if input_mode == "Batch Episode" else 1
         
-        if not server_name and download_links:
-            st.warning("Nama Server Download tidak boleh kosong.")
+        if download_links and not server_name:
+            st.warning("Nama Server Download tidak boleh kosong jika ada link download.")
         elif download_links and not st.session_state.resolutions:
              st.warning("Pilih minimal satu resolusi download.")
         elif input_mode == "Batch Episode" and stream_links and len(stream_links) != num_eps:
@@ -220,18 +202,17 @@ with col1:
                 episode_range = range(st.session_state.start_ep, st.session_state.end_ep + 1) if input_mode == "Batch Episode" else [1]
                 for ep in episode_range:
                     if ep not in st.session_state.main_data: st.session_state.main_data[ep] = {}
-                    if 'download_links' not in st.session_state.main_data[ep]: st.session_state.main_data[ep]['download_links'] = {}
                     
                     if stream_links and stream_idx < len(stream_links):
                         st.session_state.main_data[ep]['stream_link'] = stream_links[stream_idx]
                         stream_idx += 1
                     
                     if download_links:
+                        if 'download_links' not in st.session_state.main_data[ep]: st.session_state.main_data[ep]['download_links'] = {}
                         for res in st.session_state.resolutions:
                             if res not in st.session_state.main_data[ep]['download_links']: st.session_state.main_data[ep]['download_links'][res] = {}
                             st.session_state.main_data[ep]['download_links'][res][server_name] = download_links[link_idx]
                             link_idx += 1
-                
                         if server_name not in st.session_state.server_order: st.session_state.server_order.append(server_name)
                 
                 st.success(f"Data berhasil ditambahkan!"); st.session_state.reset_form = True; st.rerun()
@@ -253,9 +234,7 @@ with col2:
         for s_name in server_list_with_stream:
             is_stream = s_name == "Streaming"
             
-            # Jangan tampilkan 'Streaming' jika tidak ada link streaming sama sekali
-            if is_stream and not any(d.get('stream_link') for d in st.session_state.main_data.values()):
-                continue
+            if is_stream and not any(d.get('stream_link') for d in st.session_state.main_data.values()): continue
 
             control_cols = st.columns([0.2, 0.5, 0.1, 0.1, 0.1]) if not is_stream else st.columns([0.2, 0.8])
             with control_cols[0]:
@@ -291,10 +270,10 @@ with col2:
                     new_server_name = st.text_input("Edit Nama Server", value=s_name, key=f"edit_name_{s_name}")
                     st.write("**Edit Link Download:**")
                     for ep_num, ep_data in st.session_state.main_data.items():
-                        if s_name in ep_data.get('download_links', {}).get(st.session_state.resolutions[0], {}):
-                             for res in st.session_state.resolutions:
-                                if res in ep_data.get('download_links', {}) and s_name in ep_data['download_links'][res]:
-                                    st.text_input(label=f"Ep {ep_num} - {res}", value=ep_data['download_links'][res][s_name], key=f"link_edit_{s_name}_{ep_num}_{res}")
+                        if 'download_links' in ep_data:
+                            for res, server_links in ep_data['download_links'].items():
+                                if s_name in server_links:
+                                    st.text_input(label=f"Ep {ep_num} - {res}", value=server_links[s_name], key=f"link_edit_{s_name}_{ep_num}_{res}")
 
                 if st.button("Simpan Perubahan", key=f"save_changes_{s_name}", use_container_width=True):
                     if is_stream:
@@ -303,27 +282,32 @@ with col2:
                     else:
                         idx = st.session_state.server_order.index(s_name)
                         for ep_num, ep_data in st.session_state.main_data.items():
-                            if s_name in ep_data.get('download_links', {}).get(st.session_state.resolutions[0], {}):
-                                for res in st.session_state.resolutions:
-                                    link_key = f"link_edit_{s_name}_{ep_num}_{res}"
-                                    if link_key in st.session_state: st.session_state.main_data[ep_num]['download_links'][res][s_name] = st.session_state[link_key]
+                            if 'download_links' in ep_data:
+                                for res, server_links in ep_data['download_links'].items():
+                                    if s_name in server_links:
+                                        link_key = f"link_edit_{s_name}_{ep_num}_{res}"
+                                        if link_key in st.session_state: st.session_state.main_data[ep_num]['download_links'][res][s_name] = st.session_state[link_key]
                         if new_server_name != s_name and new_server_name:
                             st.session_state.server_order[idx] = new_server_name
                             for ep_data in st.session_state.main_data.values():
-                                for res_data in ep_data.get('download_links', {}).values():
-                                    if s_name in res_data: res_data[new_server_name] = res_data.pop(s_name)
+                                if 'download_links' in ep_data:
+                                    for res_data in ep_data['download_links'].values():
+                                        if s_name in res_data: res_data[new_server_name] = res_data.pop(s_name)
                     st.success(f"Perubahan untuk '{s_name}' telah disimpan!"); st.rerun()
 
         st.divider()
         st.subheader("Pilih Format Output")
-        output_format = st.radio("Pilih format HTML:", ["Format Streaming", "Format Drakor", "Format Ringkas"], key="output_format")
+        output_format = st.radio("Pilih format HTML:", ["Format Drakor", "Format Ringkas"], key="output_format")
         
         if output_format == "Format Drakor":
-            c1, c2 = st.columns(2); use_uppercase_drakor = c1.toggle("Server Uppercase", value=True, key="uppercase_drakor_toggle"); is_centered = c2.toggle("Rata Tengah", value=False, key="center_align_toggle")
-        elif output_format == "Format Ringkas":
-            c1, c2 = st.columns(2); grouping_style = c1.radio("Urutkan berdasarkan:", ["Server", "Resolusi"], key="grouping_style", horizontal=True); use_uppercase_ringkas = c2.toggle("Server Uppercase", value=True, key="uppercase_ringkas_toggle")
-        else: # Format Streaming
-            use_uppercase_stream = st.toggle("Server Uppercase", value=True, key="uppercase_stream_toggle")
+            c1, c2 = st.columns(2)
+            use_uppercase_drakor = c1.toggle("Server Uppercase", value=True, key="uppercase_drakor_toggle")
+            is_centered = c2.toggle("Rata Tengah", value=False, key="center_align_toggle")
+        else: # Format Ringkas
+            c1, c2, c3 = st.columns(3)
+            grouping_style = c1.radio("Urutkan berdasarkan:", ["Server", "Resolusi"], key="grouping_style")
+            use_uppercase_ringkas = c2.toggle("Server Uppercase", value=True, key="uppercase_ringkas_toggle")
+            include_streaming = c3.toggle("Sertakan Streaming", value=True, key="include_streaming_toggle")
 
         if st.button("🚀 Generate HTML", type="primary"):
             active_resolutions = st.session_state.get('resolutions', [])
@@ -331,12 +315,10 @@ with col2:
             episode_range = [1] if input_mode == "Single Link" else range(st.session_state.start_ep, st.session_state.end_ep + 1)
             
             if output_format == "Format Ringkas":
-                st.session_state.final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, use_uppercase_ringkas, servers_to_shorten, ouo_api_key)
-            elif output_format == "Format Drakor":
+                st.session_state.final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, use_uppercase_ringkas, include_streaming, servers_to_shorten, ouo_api_key)
+            else: # Format Drakor
                 st.session_state.final_html = generate_output_drakor(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase_drakor, is_centered, servers_to_shorten, ouo_api_key)
-            else: # Format Streaming
-                st.session_state.final_html = generate_output_streaming(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase_stream, servers_to_shorten, ouo_api_key)
-
+            
         if st.session_state.final_html:
             st.code(st.session_state.final_html, language="html")
             st.components.v1.html(st.session_state.final_html, height=300, scrolling=True)

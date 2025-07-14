@@ -28,38 +28,39 @@ def shorten_with_ouo(url, api_key):
         return url
 
 def generate_output_resolusi_per_baris(data, episode_range, resolutions, servers, use_uppercase=True, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format Resolusi per Baris."""
-    html_lines = []
+    """Menghasilkan output HTML format Resolusi per Baris (versi baru)."""
+    all_html_lines = []
     with st.spinner('Memproses link...'):
         for ep_num in episode_range:
             if ep_num not in data: continue
             
-            episode_content = []
+            download_links = data[ep_num].get('download_links', {})
+            
+            # Periksa apakah ada link untuk episode ini sebelum menambahkan judul
+            episode_has_links = any(res in download_links for res in resolutions)
+            if not episode_has_links: continue
+
             # Tambahkan judul episode hanya jika dalam mode batch
             if len(episode_range) > 1:
-                episode_content.append(f"<strong>EPISODE {ep_num}</strong>")
+                all_html_lines.append(f"<li><strong>EPISODE {ep_num}</strong></li>")
 
-            download_links = data[ep_num].get('download_links', {})
             for res in resolutions:
                 if res not in download_links: continue
                 
-                line_parts = [res] # Mulai baris dengan resolusi
+                line_parts = [f"<strong>{res}</strong>"]
                 for server in servers:
                     if server in download_links[res]:
                         url = download_links[res][server]
                         if server in shorten_servers:
                             url = shorten_with_ouo(url, api_key)
                         display_server = server.upper() if use_uppercase else server
-                        link_html = f'<a href="{url}">{display_server}</a>'
+                        link_html = f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server}</a>'
                         line_parts.append(link_html)
                 
-                if len(line_parts) > 1: # Hanya tambahkan jika ada link
-                    episode_content.append(" ".join(line_parts))
+                if len(line_parts) > 1:
+                    all_html_lines.append("<li>" + " ".join(line_parts) + "</li>")
             
-            if episode_content:
-                html_lines.append("<li>" + "<br>".join(episode_content) + "</li>")
-
-    return "<ul>\n" + "\n".join(html_lines) + "\n</ul>"
+    return "<ul>\n" + "\n".join(all_html_lines) + "\n</ul>"
 
 def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, use_uppercase=True, include_streaming=False, shorten_servers=[], api_key=""):
     """Menghasilkan output HTML format ringkas."""

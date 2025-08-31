@@ -204,13 +204,20 @@ with col1:
         stream_links_text = st.text_input("Link Streaming (Opsional)", key="stream_links_text")
 
 
-    # ==== PERUBAHAN: pakai TOGGLE untuk pilih resolusi ====
+    # ==== PILIH RESOLUSI DENGAN TOGGLE + MODE URUTAN ====
     default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
     
     # Init sekali agar toggle mengikuti state awal `resolutions`
     if "res_cb_init" not in st.session_state:
         for res in default_resolutions:
             st.session_state.setdefault(f"res_{res}", res in st.session_state.get("resolutions", []))
+        # state untuk lacak urutan klik & nilai sebelumnya
+        st.session_state.resolutions_click_order = [
+            res for res in default_resolutions if st.session_state.get(f"res_{res}", False)
+        ]
+        st.session_state.prev_toggles = {
+            res: st.session_state.get(f"res_{res}", False) for res in default_resolutions
+        }
         st.session_state.res_cb_init = True
     
     st.markdown("**Pilih Resolusi Download**")
@@ -226,16 +233,44 @@ with col1:
                 st.session_state[f"res_{res}"] = False
             st.rerun()
     
-    # Grid toggle (gantikan checkbox → toggle)
-    cols = st.columns(5)  # ubah jumlah kolom sesuai selera
+    # Grid toggle
+    cols = st.columns(5)
     for i, res in enumerate(default_resolutions):
         with cols[i % len(cols)]:
-            st.toggle(res, key=f"res_{res}")  # <- ini toggle
+            st.toggle(res, key=f"res_{res}")
     
-    # Kumpulkan pilihan & sinkronkan ke state asli
-    selected_resolutions = [res for res in default_resolutions if st.session_state.get(f"res_{res}", False)]
+    # Deteksi perubahan toggle utk jaga urutan klik
+    current = {res: st.session_state.get(f"res_{res}", False) for res in default_resolutions}
+    for res in default_resolutions:
+        prev = st.session_state.prev_toggles.get(res, False)
+        cur = current[res]
+        if not prev and cur:
+            # baru dicentang → masuk ke akhir urutan klik
+            if res not in st.session_state.resolutions_click_order:
+                st.session_state.resolutions_click_order.append(res)
+        elif prev and not cur:
+            # dinonaktifkan → keluarkan dari urutan klik
+            if res in st.session_state.resolutions_click_order:
+                st.session_state.resolutions_click_order.remove(res)
+    st.session_state.prev_toggles = current
+    
+    # Mode urutan: default atau sesuai urutan klik
+    ordering_mode = st.radio(
+        "Urutan resolusi",
+        ["Default (360p→1080p)", "Sesuai urutan klik"],
+        horizontal=True,
+        key="res_order_mode",
+    )
+    
+    if ordering_mode.startswith("Default"):
+        selected_resolutions = [res for res in default_resolutions if current[res]]
+    else:
+        # Ambil yang tercentang, urutkan mengikuti riwayat klik
+        selected_resolutions = [res for res in st.session_state.resolutions_click_order if current[res]]
+    
+    # Sinkronkan ke state utama
     st.session_state.resolutions = selected_resolutions
-    # ==== END PERUBAHAN ====
+    # ==== END ====
 
     server_choice = st.selectbox("Pilih Nama Server Download", options=SERVER_OPTIONS, key="sb_server")
     server_name = st.text_input("Nama Server Manual", key="txt_server").strip() if server_choice == SERVER_OPTIONS[0] else server_choice

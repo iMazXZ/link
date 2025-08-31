@@ -27,25 +27,55 @@ def shorten_with_ouo(url, api_key):
         st.error(f"Error koneksi saat menghubungi ouo.io: {e}")
         return url
 
+def generate_output_resolusi_per_baris(data, episode_range, resolutions, servers, use_uppercase=True, shorten_servers=[], api_key=""):
+    """Menghasilkan output HTML format Resolusi per Baris (versi baru)."""
+    all_html_lines = []
+    with st.spinner('Memproses link...'):
+        for ep_num in episode_range:
+            if ep_num not in data: continue
+            
+            download_links = data[ep_num].get('download_links', {})
+            
+            # Periksa apakah ada link untuk episode ini sebelum menambahkan judul
+            episode_has_links = any(res in download_links for res in resolutions)
+            if not episode_has_links: continue
+
+            # Tambahkan judul episode hanya jika dalam mode batch
+            if len(episode_range) > 1:
+                all_html_lines.append(f"<li><strong>EPISODE {ep_num}</strong></li>")
+
+            for res in resolutions:
+                if res not in download_links: continue
+                
+                line_parts = [f"<strong>{res}</strong>"]
+                for server in servers:
+                    if server in download_links[res]:
+                        url = download_links[res][server]
+                        if server in shorten_servers:
+                            url = shorten_with_ouo(url, api_key)
+                        display_server = server.upper() if use_uppercase else server
+                        link_html = f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server}</a>'
+                        line_parts.append(link_html)
+                
+                if len(line_parts) > 1:
+                    all_html_lines.append("<li>" + " ".join(line_parts) + "</li>")
+            
+    return "<ul>\n" + "\n".join(all_html_lines) + "\n</ul>"
+
 def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_style, use_uppercase=True, include_streaming=False, shorten_servers=[], api_key=""):
-    """Menghasilkan output HTML format ringkas, dengan opsi menyertakan streaming."""
+    """Menghasilkan output HTML format ringkas."""
     txt_lines = []
     with st.spinner('Memproses link...'):
         for ep_num in episode_range:
             if ep_num not in data: continue
             
             link_parts = []
-            
-            # 1. Tambahkan link streaming jika opsi dipilih dan link tersedia
             if include_streaming and data[ep_num].get('stream_link'):
                 stream_url = data[ep_num]['stream_link']
-                if "Streaming" in shorten_servers:
-                    stream_url = shorten_with_ouo(stream_url, api_key)
+                if "Streaming" in shorten_servers: stream_url = shorten_with_ouo(stream_url, api_key)
                 link_parts.append(f'<a href="{stream_url}">Streaming</a>')
 
-            # 2. Tambahkan link download
             download_links = data[ep_num].get('download_links', {})
-            display_server = ""
             if "Server" in grouping_style:
                 for server in servers:
                     for res in resolutions:
@@ -99,7 +129,7 @@ def generate_output_drakor(data, episode_range, resolutions, servers, use_upperc
 # STATE INISIALISASI
 # =============================================================================
 if 'main_data' not in st.session_state:
-    st.session_state.main_data = {} # Struktur: {ep: {'stream_link': '...', 'download_links': {res: {server: link}}}}
+    st.session_state.main_data = {}
 if 'server_order' not in st.session_state:
     st.session_state.server_order = []
 if 'final_html' not in st.session_state:
@@ -151,7 +181,7 @@ if st.sidebar.button("Muat dari Teks"):
         except Exception as e: st.sidebar.error(f"Gagal memuat: {e}")
     else: st.sidebar.warning("Area teks kosong.")
 
-SERVER_OPTIONS = ["(Ketik Manual)", "Mirrored", "TeraBox", "UpFiles", "BuzzHeav", "AkiraBox", "SendNow", "KrakrnFl", "Vidguard", "StreamHG"]
+SERVER_OPTIONS = ["(Ketik Manual)", "TeraBox", "VidGuard", "BuzzHeav", "UpFiles", "GoFileIo", "Mirrored", "AkiraBox", "SendNow", "KrakenFl", "StreamHG"]
 col1, col2 = st.columns(2)
 
 # =============================================================================
@@ -233,9 +263,7 @@ with col2:
         server_list_with_stream = ["Streaming"] + st.session_state.server_order
         for s_name in server_list_with_stream:
             is_stream = s_name == "Streaming"
-            
             if is_stream and not any(d.get('stream_link') for d in st.session_state.main_data.values()): continue
-
             control_cols = st.columns([0.2, 0.5, 0.1, 0.1, 0.1]) if not is_stream else st.columns([0.2, 0.8])
             with control_cols[0]:
                 if st.checkbox("ouo.io", key=f"shorten_{s_name}", help=f"Perpendek link untuk {s_name}"):
@@ -278,7 +306,7 @@ with col2:
                 if st.button("Simpan Perubahan", key=f"save_changes_{s_name}", use_container_width=True):
                     if is_stream:
                         for ep_num in st.session_state.main_data:
-                            st.session_state.main_data[ep_num]['stream_link'] = st.session_state[f"edit_stream_link_{ep_num}"]
+                            if f"edit_stream_link_{ep_num}" in st.session_state: st.session_state.main_data[ep_num]['stream_link'] = st.session_state[f"edit_stream_link_{ep_num}"]
                     else:
                         idx = st.session_state.server_order.index(s_name)
                         for ep_num, ep_data in st.session_state.main_data.items():
@@ -297,17 +325,14 @@ with col2:
 
         st.divider()
         st.subheader("Pilih Format Output")
-        output_format = st.radio("Pilih format HTML:", ["Format Drakor", "Format Ringkas"], key="output_format")
+        output_format = st.radio("Pilih format HTML:", ["Format Drakor", "Format Ringkas", "Format Resolusi per Baris"], key="output_format")
         
         if output_format == "Format Drakor":
-            c1, c2 = st.columns(2)
-            use_uppercase_drakor = c1.toggle("Server Uppercase", value=True, key="uppercase_drakor_toggle")
-            is_centered = c2.toggle("Rata Tengah", value=False, key="center_align_toggle")
-        else: # Format Ringkas
-            c1, c2, c3 = st.columns(3)
-            grouping_style = c1.radio("Urutkan berdasarkan:", ["Server", "Resolusi"], key="grouping_style")
-            use_uppercase_ringkas = c2.toggle("Server Uppercase", value=True, key="uppercase_ringkas_toggle")
-            include_streaming = c3.toggle("Sertakan Streaming", value=True, key="include_streaming_toggle")
+            c1, c2 = st.columns(2); use_uppercase_drakor = c1.toggle("Server Uppercase", value=True, key="uppercase_drakor_toggle"); is_centered = c2.toggle("Rata Tengah", value=False, key="center_align_toggle")
+        elif output_format == "Format Ringkas":
+            c1, c2, c3 = st.columns(3); grouping_style = c1.radio("Urutkan berdasarkan:", ["Server", "Resolusi"], key="grouping_style"); use_uppercase_ringkas = c2.toggle("Server Uppercase", value=True, key="uppercase_ringkas_toggle"); include_streaming = c3.toggle("Sertakan Streaming", value=False, key="include_streaming_toggle")
+        else: # Format Resolusi per Baris
+            use_uppercase_res_per_baris = st.toggle("Server Uppercase", value=True, key="uppercase_res_per_baris_toggle")
 
         if st.button("🚀 Generate HTML", type="primary"):
             active_resolutions = st.session_state.get('resolutions', [])
@@ -316,9 +341,11 @@ with col2:
             
             if output_format == "Format Ringkas":
                 st.session_state.final_html = generate_output_ringkas(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, grouping_style, use_uppercase_ringkas, include_streaming, servers_to_shorten, ouo_api_key)
-            else: # Format Drakor
+            elif output_format == "Format Drakor":
                 st.session_state.final_html = generate_output_drakor(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase_drakor, is_centered, servers_to_shorten, ouo_api_key)
-            
+            else: # Format Resolusi per Baris
+                st.session_state.final_html = generate_output_resolusi_per_baris(st.session_state.main_data, episode_range, active_resolutions, st.session_state.server_order, use_uppercase_res_per_baris, servers_to_shorten, ouo_api_key)
+
         if st.session_state.final_html:
             st.code(st.session_state.final_html, language="html")
             st.components.v1.html(st.session_state.final_html, height=300, scrolling=True)

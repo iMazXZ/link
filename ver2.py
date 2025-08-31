@@ -18,16 +18,16 @@ def ui_toggle(label, value=False, key=None, help=None, disabled=False):
 # =============================================================================
 
 def shorten_with_ouo(url, api_key):
-    """Memperpendek URL menggunakan ouo.io API."""
+    """(RAW) Memperpendek URL menggunakan ouo.io API (tanpa cache)."""
     if not api_key:
         st.warning("API Key ouo.io tidak ditemukan. Link tidak diperpendek.", icon="🔑")
         return url
     try:
         api_url = f'https://ouo.io/api/{api_key}?s={url}'
-        response = requests.get(api_url)
+        response = requests.get(api_url, timeout=10)
         if response.status_code == 200:
-            time.sleep(0.5) 
-            return response.text
+            time.sleep(0.5)  # throttle ringan agar aman
+            return response.text.strip()
         else:
             st.warning(f"Gagal memperpendek {url}. Status: {response.status_code}")
             return url
@@ -35,28 +35,37 @@ def shorten_with_ouo(url, api_key):
         st.error(f"Error koneksi saat menghubungi ouo.io: {e}")
         return url
 
+@st.cache_data(show_spinner=False, ttl=3600)
+def ouo_cached(api_key, url):
+    """Wrapper cached: 1× panggil per (api_key, url) selama TTL."""
+    return shorten_with_ouo(url, api_key)
+
 def generate_output_resolusi_per_baris(data, episode_range, resolutions, servers, use_uppercase=True, shorten_servers=[], api_key=""):
     """Menghasilkan output HTML format Resolusi per Baris (versi baru)."""
     all_html_lines = []
     with st.spinner('Memproses link...'):
         for ep_num in episode_range:
-            if ep_num not in data: continue
+            if ep_num not in data: 
+                continue
             
             download_links = data[ep_num].get('download_links', {})
             episode_has_links = any(res in download_links for res in resolutions)
-            if not episode_has_links: continue
+            if not episode_has_links: 
+                continue
 
+            # Tambahkan judul episode hanya jika dalam mode batch
             if len(episode_range) > 1:
                 all_html_lines.append(f"<li><strong>EPISODE {ep_num}</strong></li>")
 
             for res in resolutions:
-                if res not in download_links: continue
+                if res not in download_links: 
+                    continue
                 line_parts = [f"<strong>{res}</strong>"]
                 for server in servers:
                     if server in download_links[res]:
                         url = download_links[res][server]
                         if server in shorten_servers:
-                            url = shorten_with_ouo(url, api_key)
+                            url = ouo_cached(api_key, url)  # <<< CACHE
                         display_server = server.upper() if use_uppercase else server
                         link_html = f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server}</a>'
                         line_parts.append(link_html)
@@ -69,12 +78,14 @@ def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_
     txt_lines = []
     with st.spinner('Memproses link...'):
         for ep_num in episode_range:
-            if ep_num not in data: continue
+            if ep_num not in data: 
+                continue
             
             link_parts = []
             if include_streaming and data[ep_num].get('stream_link'):
                 stream_url = data[ep_num]['stream_link']
-                if "Streaming" in shorten_servers: stream_url = shorten_with_ouo(stream_url, api_key)
+                if "Streaming" in shorten_servers:
+                    stream_url = ouo_cached(api_key, stream_url)  # <<< CACHE
                 link_parts.append(f'<a href="{stream_url}">Streaming</a>')
 
             download_links = data[ep_num].get('download_links', {})
@@ -83,15 +94,17 @@ def generate_output_ringkas(data, episode_range, resolutions, servers, grouping_
                     for res in resolutions:
                         if res in download_links and server in download_links[res]:
                             url = download_links[res][server]
-                            if server in shorten_servers: url = shorten_with_ouo(url, api_key)
+                            if server in shorten_servers:
+                                url = ouo_cached(api_key, url)  # <<< CACHE
                             display_server = server.upper() if use_uppercase else server
                             link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server} {res}</a>')
-            else:
+            else:  # "Resolusi"
                 for res in resolutions:
                     for server in servers:
                         if res in download_links and server in download_links[res]:
                             url = download_links[res][server]
-                            if server in shorten_servers: url = shorten_with_ouo(url, api_key)
+                            if server in shorten_servers:
+                                url = ouo_cached(api_key, url)  # <<< CACHE
                             display_server = server.upper() if use_uppercase else server
                             link_parts.append(f'<a href="{url}" rel="nofollow" data-wpel-link="external">{display_server} {res}</a>')
 
@@ -106,19 +119,22 @@ def generate_output_drakor(data, episode_range, resolutions, servers, use_upperc
     
     with st.spinner('Memproses dan memperpendek link...'):
         for ep_num in episode_range:
-            if ep_num not in data: continue
+            if ep_num not in data: 
+                continue
             
             if len(episode_range) > 1:
                 html_lines.append(f'<p{style_attr}><strong>EPISODE {ep_num}</strong></p>')
 
             download_links = data[ep_num].get('download_links', {})
             for res in resolutions:
-                if res not in download_links: continue
+                if res not in download_links: 
+                    continue
                 link_parts = []
                 for server in servers:
                     if server in download_links[res]:
                         url = download_links[res][server]
-                        if server in shorten_servers: url = shorten_with_ouo(url, api_key)
+                        if server in shorten_servers:
+                            url = ouo_cached(api_key, url)  # <<< CACHE
                         display_server = server.upper() if use_uppercase else server
                         link_parts.append(f'<a href="{url}">{display_server}</a>')
                 if link_parts:
@@ -155,6 +171,10 @@ st.title("Universal Link Generator")
 # --- Pengaturan Sidebar ---
 st.sidebar.header("Pengaturan Global")
 ouo_api_key = st.sidebar.text_input("API Key ouo.io", value="8pHuHRq5", type="password", help="Masukkan API Key Anda dari ouo.io.")
+if st.sidebar.button("Bersihkan Cache Pemendek"):
+    st.cache_data.clear()
+    st.sidebar.success("Cache pemendek dibersihkan.")
+
 st.sidebar.divider()
 st.sidebar.header("Simpan & Muat Sesi")
 if st.sidebar.button("Simpan Sesi Saat Ini"):
@@ -193,7 +213,7 @@ if st.sidebar.button("Muat dari Teks"):
     else:
         st.sidebar.warning("Area teks kosong.")
 
-SERVER_OPTIONS = ["(Ketik Manual)", "TeraBox", "VidGuard", "BuzzHeav", "UpFiles", "GoFileIo", "Mirrored", "AkiraBox", "SendNow", "KrakenFl", "StreamHG"]
+SERVER_OPTIONS = ["(Ketik Manual)", "TeraBox", "VidGuard", "BuzzHeav", "UpFiles", "Mirrored", "GoFileIo", "AkiraBox", "SendNow", "KrakenFl", "StreamHG"]
 col1, col2 = st.columns(2)
 
 # =============================================================================
@@ -221,7 +241,7 @@ with col1:
     else:  # Single Link Mode
         stream_links_text = st.text_input("Link Streaming (Opsional)", key="stream_links_text")
 
-    # ==== PEMILIHAN RESOLUSI: pakai ui_toggle (toggle/checkbox fallback) ====
+    # ==== PEMILIHAN RESOLUSI: toggle/checkbox fallback (default order) ====
     default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
 
     # Init sekali agar toggle mengikuti state awal resolutions
@@ -243,14 +263,15 @@ with col1:
                 st.session_state[f"res_{res}"] = False
             st.rerun()
 
-    cols = st.columns(5)  # ubah 3/4/5 sesuai selera
+    cols = st.columns(5)
     for i, res in enumerate(default_resolutions):
         with cols[i % len(cols)]:
-            ui_toggle(res, key=f"res_{res}")  # <- fallback aware
+            ui_toggle(res, key=f"res_{res}")
 
+    # Kumpulkan sesuai urutan DEFAULT (bukan urutan klik)
     selected_resolutions = [res for res in default_resolutions if st.session_state.get(f"res_{res}", False)]
     st.session_state.resolutions = selected_resolutions
-    # ==== END ====
+    st.caption("Urutan resolusi aktif (default): " + " → ".join(st.session_state.resolutions))
 
     server_choice = st.selectbox("Pilih Nama Server Download", options=SERVER_OPTIONS, key="sb_server")
     server_name = st.text_input("Nama Server Manual", key="txt_server").strip() if server_choice == SERVER_OPTIONS[0] else server_choice
@@ -300,7 +321,7 @@ with col1:
 
     if st.button("🔄 Reset Semua Data"):
         st.session_state.main_data = {}
-        st.session_state.server_order = []
+        st.session_state.server_order = {}
         st.session_state.final_html = ""
         st.rerun()
 

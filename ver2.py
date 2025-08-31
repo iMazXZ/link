@@ -204,17 +204,16 @@ with col1:
         stream_links_text = st.text_input("Link Streaming (Opsional)", key="stream_links_text")
 
 
+    # ==== PERUBAHAN: pakai TOGGLE untuk pilih resolusi ====
     default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
-
-    # --- INIT sekali: sinkronkan nilai checkbox dgn state resolutions
+    
+    # Init sekali agar toggle mengikuti state awal `resolutions`
     if "res_cb_init" not in st.session_state:
         for res in default_resolutions:
             st.session_state.setdefault(f"res_{res}", res in st.session_state.get("resolutions", []))
         st.session_state.res_cb_init = True
     
     st.markdown("**Pilih Resolusi Download**")
-    
-    # (opsional) tombol cepat
     bt1, bt2 = st.columns(2)
     with bt1:
         if st.button("Pilih Semua"):
@@ -227,18 +226,16 @@ with col1:
                 st.session_state[f"res_{res}"] = False
             st.rerun()
     
-    # tampilkan checkbox dalam grid rapi
-    cols = st.columns(5)  # atur 3/4/5 sesuai selera
+    # Grid toggle (gantikan checkbox → toggle)
+    cols = st.columns(5)  # ubah jumlah kolom sesuai selera
     for i, res in enumerate(default_resolutions):
         with cols[i % len(cols)]:
-            st.checkbox(res, key=f"res_{res}")
+            st.toggle(res, key=f"res_{res}")  # <- ini toggle
     
-    # kumpulkan pilihan sesuai URUTAN default_resolutions
+    # Kumpulkan pilihan & sinkronkan ke state asli
     selected_resolutions = [res for res in default_resolutions if st.session_state.get(f"res_{res}", False)]
-    
-    # sinkronkan ke state asli (supaya bagian lain tetap jalan)
     st.session_state.resolutions = selected_resolutions
-
+    # ==== END PERUBAHAN ====
 
     server_choice = st.selectbox("Pilih Nama Server Download", options=SERVER_OPTIONS, key="sb_server")
     server_name = st.text_input("Nama Server Manual", key="txt_server").strip() if server_choice == SERVER_OPTIONS[0] else server_choice

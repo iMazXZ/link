@@ -205,15 +205,40 @@ with col1:
 
 
     default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
-    # ==== SATU-SATUNYA PERUBAHAN DIMULAI DI SINI ====
-    selected_resolutions = st.multiselect(
-        "Pilih Resolusi Download",
-        options=default_resolutions,
-        default=st.session_state.resolutions,
-        key="resolutions_widget"
-    )
+
+    # --- INIT sekali: sinkronkan nilai checkbox dgn state resolutions
+    if "res_cb_init" not in st.session_state:
+        for res in default_resolutions:
+            st.session_state.setdefault(f"res_{res}", res in st.session_state.get("resolutions", []))
+        st.session_state.res_cb_init = True
+    
+    st.markdown("**Pilih Resolusi Download**")
+    
+    # (opsional) tombol cepat
+    bt1, bt2 = st.columns(2)
+    with bt1:
+        if st.button("Pilih Semua"):
+            for res in default_resolutions:
+                st.session_state[f"res_{res}"] = True
+            st.rerun()
+    with bt2:
+        if st.button("Kosongkan"):
+            for res in default_resolutions:
+                st.session_state[f"res_{res}"] = False
+            st.rerun()
+    
+    # tampilkan checkbox dalam grid rapi
+    cols = st.columns(5)  # atur 3/4/5 sesuai selera
+    for i, res in enumerate(default_resolutions):
+        with cols[i % len(cols)]:
+            st.checkbox(res, key=f"res_{res}")
+    
+    # kumpulkan pilihan sesuai URUTAN default_resolutions
+    selected_resolutions = [res for res in default_resolutions if st.session_state.get(f"res_{res}", False)]
+    
+    # sinkronkan ke state asli (supaya bagian lain tetap jalan)
     st.session_state.resolutions = selected_resolutions
-    # ==== SATU-SATUNYA PERUBAHAN BERAKHIR DI SINI ====
+
 
     server_choice = st.selectbox("Pilih Nama Server Download", options=SERVER_OPTIONS, key="sb_server")
     server_name = st.text_input("Nama Server Manual", key="txt_server").strip() if server_choice == SERVER_OPTIONS[0] else server_choice

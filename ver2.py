@@ -205,14 +205,16 @@ with col1:
 
 
     default_resolutions = ["360p", "480p", "540p", "720p", "1080p"]
+    # ==== SATU-SATUNYA PERUBAHAN DIMULAI DI SINI ====
     selected_resolutions = st.multiselect(
-    "Pilih Resolusi Download",
-    options=default_resolutions,
-    default=st.session_state.resolutions,
-    key="resolutions_widget"  # beri key khusus untuk widget
-)
-st.session_state.resolutions = selected_resolutions
-    
+        "Pilih Resolusi Download",
+        options=default_resolutions,
+        default=st.session_state.resolutions,
+        key="resolutions_widget"
+    )
+    st.session_state.resolutions = selected_resolutions
+    # ==== SATU-SATUNYA PERUBAHAN BERAKHIR DI SINI ====
+
     server_choice = st.selectbox("Pilih Nama Server Download", options=SERVER_OPTIONS, key="sb_server")
     server_name = st.text_input("Nama Server Manual", key="txt_server").strip() if server_choice == SERVER_OPTIONS[0] else server_choice
     

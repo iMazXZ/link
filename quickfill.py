@@ -80,8 +80,8 @@ def inject_custom_css():
     /* Primary button */
     .stButton > button[kind="primary"],
     .stButton > button {
-        background-color: #fafafa !important;
-        color: #18181b !important;
+        background-color: #6366f1 !important;
+        color: #ffffff !important;
         border: none !important;
         border-radius: 6px !important;
         font-weight: 500 !important;
@@ -90,7 +90,7 @@ def inject_custom_css():
     }
     
     .stButton > button:hover {
-        background-color: #e4e4e7 !important;
+        background-color: #4f46e5 !important;
     }
     
     /* Download button */

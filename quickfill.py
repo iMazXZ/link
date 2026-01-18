@@ -540,8 +540,16 @@ with col2:
             d = scripts[ep_num]
             st.caption(f"**{d['series']}** · {d['embeds']} embeds · {', '.join(d['resolutions'])}")
             
+            # Escape HTML for display
+            import html
+            escaped_js = html.escape(d['js'])
+            
             # Scrollable code container
-            st.markdown(f'''<div style="max-height: 350px; overflow-y: auto; background: #18181b; border: 1px solid #27272a; border-radius: 6px; padding: 1rem;"><pre style="margin: 0; white-space: pre-wrap; word-wrap: break-word; color: #a1a1aa; font-size: 0.75rem; line-height: 1.5;">{d["js"]}</pre></div>''', unsafe_allow_html=True)
+            st.markdown(f'''<div style="max-height: 350px; overflow-y: auto; background: #0a0a0b; border: 1px solid #27272a; border-radius: 6px; padding: 1rem;"><pre style="margin: 0; white-space: pre; overflow-x: auto; color: #a1a1aa; font-size: 0.75rem; line-height: 1.5; font-family: 'Monaco', 'Consolas', monospace;">{escaped_js}</pre></div>''', unsafe_allow_html=True)
+            
+            # Copy button workaround - show in expander
+            with st.expander("Copy Script"):
+                st.code(d['js'], language='javascript')
             
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -553,7 +561,7 @@ with col2:
 
 with st.expander("Help"):
     st.markdown("""
-**Embed formats:** `<iframe>`, `id | <iframe>`, `[Tag] Series (Year) EXXX.mp4` + iframe
+**Embed formats:** `&lt;iframe&gt;`, `id | &lt;iframe&gt;`, `[Tag] Series (Year) EXXX.mp4` + iframe
 
 **Download:** After "Download Link", Mirrored URLs define episodes/resolutions. Other hosts follow order.
-""")
+""", unsafe_allow_html=True)

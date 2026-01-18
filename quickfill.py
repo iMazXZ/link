@@ -109,6 +109,7 @@ def parse_input(text: str) -> Dict[str, Episode]:
     # ========== PARSE EMBED SECTION ==========
     embed_lines = lines[:download_section_start] if download_section_start > 0 else lines
     embed_server_count = {}
+    standalone_embeds = []  # Embeds without episode info
     
     # First pass: filename + iframe
     i = 0
@@ -135,6 +136,18 @@ def parse_input(text: str) -> Dict[str, Episode]:
                     ))
                     i += 2
                     continue
+        
+        # Standalone iframe
+        elif line.startswith('<iframe'):
+            standalone_embeds.append(line)
+        
+        # Format: id | <iframe...>
+        elif '|' in line and '<iframe' in line:
+            parts = line.split('|', 1)
+            iframe_part = parts[1].strip()
+            if iframe_part.startswith('<iframe'):
+                standalone_embeds.append(iframe_part)
+        
         i += 1
     
     # Second pass: filename|url
@@ -215,6 +228,29 @@ def parse_input(text: str) -> Dict[str, Episode]:
                             DownloadLink(hosting=hosting, url=url, resolution=res)
                         )
                         current_res_index += 1
+        
+        # Extract series name from Mirrored URL
+        for url in download_urls:
+            if 'mirrored' in url.lower():
+                series_match = re.search(r'\[.*?\]_(.+?)_E\d+', url)
+                if series_match:
+                    detected_series = series_match.group(1).replace('_', ' ')
+                    for ep in episodes.values():
+                        if ep.series_name == "Unknown":
+                            ep.series_name = detected_series
+                    break
+        
+        # Assign standalone embeds to single episode
+        if standalone_embeds and len(episodes) == 1:
+            ep_num = list(episodes.keys())[0]
+            for embed in standalone_embeds:
+                if ep_num not in embed_server_count:
+                    embed_server_count[ep_num] = 0
+                embed_server_count[ep_num] += 1
+                episodes[ep_num].embeds.append(EmbedData(
+                    hostname=f"Server {embed_server_count[ep_num]}",
+                    embed=embed
+                ))
     
     return episodes
 

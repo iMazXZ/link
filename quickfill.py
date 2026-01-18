@@ -1,9 +1,7 @@
 """
 DramaStream Quickfill Generator - Streamlit Version
 ====================================================
-Deploy ke share.streamlit.io untuk akses web.
-
-Jalankan lokal: streamlit run streamlit_quickfill.py
+Light Glassmorphism UI Design
 """
 
 import streamlit as st
@@ -12,6 +10,198 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 import zipfile
 import io
+
+# =============================================================================
+# CUSTOM CSS - GLASSMORPHISM THEME
+# =============================================================================
+
+def inject_custom_css():
+    st.markdown("""
+    <style>
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* Root Variables */
+    :root {
+        --glass-bg: rgba(255, 255, 255, 0.7);
+        --glass-border: rgba(255, 255, 255, 0.3);
+        --accent-color: #6366f1;
+        --accent-hover: #4f46e5;
+        --text-primary: #1e293b;
+        --text-secondary: #64748b;
+        --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Main Background */
+    .stApp {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Hide Streamlit Branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Main Container */
+    .main .block-container {
+        padding: 2rem 3rem;
+        max-width: 1400px;
+    }
+    
+    /* Glass Card Effect */
+    .glass-card {
+        background: var(--glass-bg);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-radius: 20px;
+        border: 1px solid var(--glass-border);
+        box-shadow: var(--shadow);
+        padding: 2rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    /* Title Styling */
+    .main-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: white;
+        text-align: center;
+        margin-bottom: 0.5rem;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    }
+    
+    .main-subtitle {
+        font-size: 1rem;
+        color: rgba(255,255,255,0.9);
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    
+    /* Section Headers */
+    .section-header {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--accent-color);
+    }
+    
+    /* Input Styling */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea {
+        background: rgba(255, 255, 255, 0.9) !important;
+        border: 1px solid rgba(99, 102, 241, 0.3) !important;
+        border-radius: 12px !important;
+        padding: 0.75rem 1rem !important;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.9rem !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus {
+        border-color: var(--accent-color) !important;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2) !important;
+    }
+    
+    /* Button Styling */
+    .stButton > button {
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 0.75rem 2rem !important;
+        font-weight: 600 !important;
+        font-family: 'Inter', sans-serif !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4) !important;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5) !important;
+    }
+    
+    /* Download Button */
+    .stDownloadButton > button {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4) !important;
+    }
+    
+    .stDownloadButton > button:hover {
+        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5) !important;
+    }
+    
+    /* Select Box */
+    .stSelectbox > div > div {
+        background: rgba(255, 255, 255, 0.9) !important;
+        border-radius: 12px !important;
+    }
+    
+    /* Code Block */
+    .stCode {
+        border-radius: 12px !important;
+        border: 1px solid rgba(99, 102, 241, 0.2) !important;
+    }
+    
+    /* Info/Success/Warning/Error boxes */
+    .stAlert {
+        border-radius: 12px !important;
+        border: none !important;
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        background: rgba(255, 255, 255, 0.5) !important;
+        border-radius: 12px !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Divider */
+    hr {
+        border: none;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.3), transparent);
+        margin: 1.5rem 0;
+    }
+    
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: rgba(255, 255, 255, 0.1) !important;
+        backdrop-filter: blur(10px) !important;
+    }
+    
+    [data-testid="stSidebar"] .block-container {
+        padding: 2rem 1rem;
+    }
+    
+    /* Spinner */
+    .stSpinner > div {
+        border-top-color: var(--accent-color) !important;
+    }
+    
+    /* Caption */
+    .stCaption {
+        color: var(--text-secondary) !important;
+    }
+    
+    /* Result Card */
+    .result-info {
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+        border-radius: 12px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border-left: 4px solid var(--accent-color);
+    }
+    
+    .result-info strong {
+        color: var(--accent-color);
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 
 # =============================================================================
 # DATA CLASSES
@@ -44,7 +234,6 @@ class Episode:
 # =============================================================================
 
 def parse_filename(filename: str) -> Optional[Dict]:
-    """Parse filename like [LayarAsia] I Live Alone (2025) E625.720p.mp4"""
     pattern = r'\[.*?\]\s*(.+?)\s*\((\d{4})\)\s*E(\d+)'
     match = re.search(pattern, filename)
     if match:
@@ -57,13 +246,11 @@ def parse_filename(filename: str) -> Optional[Dict]:
 
 
 def extract_resolution(text: str) -> str:
-    """Extract resolution from text"""
     match = re.search(r'(\d{3,4}p)', text, re.IGNORECASE)
     return match.group(1) if match else '720p'
 
 
 def detect_hosting(url: str) -> str:
-    """Detect hosting name from URL"""
     url_lower = url.lower()
     if 'terabox' in url_lower:
         return 'Terabox'
@@ -88,12 +275,9 @@ def detect_hosting(url: str) -> str:
 
 
 def parse_input(text: str) -> Dict[str, Episode]:
-    """Parse the full input text and return episodes dict"""
     episodes: Dict[str, Episode] = {}
-    
     lines = text.strip().split('\n')
     
-    # Find separator "Download Link"
     download_section_start = -1
     for i, line in enumerate(lines):
         if line.strip().lower() == 'download link':
@@ -106,12 +290,10 @@ def parse_input(text: str) -> Dict[str, Episode]:
                 download_section_start = i
                 break
     
-    # ========== PARSE EMBED SECTION ==========
     embed_lines = lines[:download_section_start] if download_section_start > 0 else lines
     embed_server_count = {}
-    standalone_embeds = []  # Embeds without episode info
+    standalone_embeds = []
     
-    # First pass: filename + iframe
     i = 0
     while i < len(embed_lines):
         line = embed_lines[i].strip()
@@ -122,35 +304,22 @@ def parse_input(text: str) -> Dict[str, Episode]:
                 if next_line.startswith('<iframe'):
                     ep_num = info['episode']
                     if ep_num not in episodes:
-                        episodes[ep_num] = Episode(
-                            number=ep_num,
-                            series_name=info['series_name'],
-                            year=info['year']
-                        )
+                        episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info['year'])
                     if ep_num not in embed_server_count:
                         embed_server_count[ep_num] = 0
                     embed_server_count[ep_num] += 1
-                    episodes[ep_num].embeds.append(EmbedData(
-                        hostname=f"Server {embed_server_count[ep_num]}",
-                        embed=next_line
-                    ))
+                    episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=next_line))
                     i += 2
                     continue
-        
-        # Standalone iframe
         elif line.startswith('<iframe'):
             standalone_embeds.append(line)
-        
-        # Format: id | <iframe...>
         elif '|' in line and '<iframe' in line:
             parts = line.split('|', 1)
             iframe_part = parts[1].strip()
             if iframe_part.startswith('<iframe'):
                 standalone_embeds.append(iframe_part)
-        
         i += 1
     
-    # Second pass: filename|url
     for line in embed_lines:
         line = line.strip()
         if line.startswith('[') and '|' in line:
@@ -161,21 +330,13 @@ def parse_input(text: str) -> Dict[str, Episode]:
             if info:
                 ep_num = info['episode']
                 if ep_num not in episodes:
-                    episodes[ep_num] = Episode(
-                        number=ep_num,
-                        series_name=info['series_name'],
-                        year=info['year']
-                    )
+                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info['year'])
                 if ep_num not in embed_server_count:
                     embed_server_count[ep_num] = 0
                 embed_server_count[ep_num] += 1
                 embed_code = f'<iframe src="{url}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
-                episodes[ep_num].embeds.append(EmbedData(
-                    hostname=f"Server {embed_server_count[ep_num]}",
-                    embed=embed_code
-                ))
+                episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=embed_code))
     
-    # ========== PARSE DOWNLOAD SECTION ==========
     if download_section_start > 0:
         download_lines = lines[download_section_start + 1:]
         download_urls = [line.strip() for line in download_lines if line.strip() and line.strip().startswith('http')]
@@ -196,9 +357,7 @@ def parse_input(text: str) -> Dict[str, Episode]:
                         episode_resolutions[ep_num].append(res)
                     if res not in episodes[ep_num].downloads:
                         episodes[ep_num].downloads[res] = []
-                    episodes[ep_num].downloads[res].append(
-                        DownloadLink(hosting='Mirrored', url=url, resolution=res)
-                    )
+                    episodes[ep_num].downloads[res].append(DownloadLink(hosting='Mirrored', url=url, resolution=res))
         
         current_episode = None
         current_res_index = 0
@@ -224,12 +383,9 @@ def parse_input(text: str) -> Dict[str, Episode]:
                         current_res_index = 0
                     if current_res_index < len(resolutions):
                         res = resolutions[current_res_index]
-                        episodes[current_episode].downloads[res].append(
-                            DownloadLink(hosting=hosting, url=url, resolution=res)
-                        )
+                        episodes[current_episode].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
                         current_res_index += 1
         
-        # Extract series name from Mirrored URL
         for url in download_urls:
             if 'mirrored' in url.lower():
                 series_match = re.search(r'\[.*?\]_(.+?)_E\d+', url)
@@ -240,24 +396,18 @@ def parse_input(text: str) -> Dict[str, Episode]:
                             ep.series_name = detected_series
                     break
         
-        # Assign standalone embeds to single episode
         if standalone_embeds and len(episodes) == 1:
             ep_num = list(episodes.keys())[0]
             for embed in standalone_embeds:
                 if ep_num not in embed_server_count:
                     embed_server_count[ep_num] = 0
                 embed_server_count[ep_num] += 1
-                episodes[ep_num].embeds.append(EmbedData(
-                    hostname=f"Server {embed_server_count[ep_num]}",
-                    embed=embed
-                ))
+                episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=embed))
     
     return episodes
 
 
 def generate_quickfill_js(episode: Episode, subbed: str = "Sub") -> str:
-    """Generate JavaScript quickfill code for an episode"""
-    
     embeds_js = []
     for emb in episode.embeds:
         embed_escaped = emb.embed.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n')
@@ -420,13 +570,14 @@ const EPISODE_DATA = {{
 # =============================================================================
 
 st.set_page_config(
-    page_title="DramaStream Quickfill Generator",
+    page_title="DramaStream Quickfill",
     page_icon="▶",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-st.title("DramaStream Quickfill Generator")
-st.caption("Generate script autofill untuk posting episode ke WordPress")
+# Inject custom CSS
+inject_custom_css()
 
 # Session state
 if 'generated_scripts' not in st.session_state:
@@ -434,22 +585,22 @@ if 'generated_scripts' not in st.session_state:
 if 'selected_episode' not in st.session_state:
     st.session_state.selected_episode = None
 
-# Sidebar settings (minimal)
-st.sidebar.header("Info")
-st.sidebar.caption("Script auto-detect series dari URL Mirrored. Isi manual jika ingin override.")
+# Header
+st.markdown('<h1 class="main-title">DramaStream Quickfill</h1>', unsafe_allow_html=True)
+st.markdown('<p class="main-subtitle">Generate autofill scripts untuk posting episode ke WordPress</p>', unsafe_allow_html=True)
 
 # Main layout
-col1, col2 = st.columns([1, 1])
+col1, col2 = st.columns([1, 1], gap="large")
 
 with col1:
-    st.subheader("Input Data")
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Input Data</div>', unsafe_allow_html=True)
     
-    # Series name input - di area utama
-    series_name = st.text_input("Nama Series (opsional)", placeholder="Kosongkan untuk auto-detect dari URL")
+    series_name = st.text_input("Nama Series (opsional)", placeholder="Kosongkan untuk auto-detect")
     
     input_text = st.text_area(
-        "Paste data episode:",
-        height=350,
+        "Paste data episode",
+        height=280,
         placeholder="""<iframe src="https://server1/xxx" ...></iframe>
 id | <iframe src="https://short.icu/xxx" ...></iframe>
 
@@ -458,13 +609,12 @@ Download Link
 https://www.mirrored.to/.../E001.360p.mp4_links
 https://www.mirrored.to/.../E001.720p.mp4_links
 https://upfiles.com/xxx
-https://upfiles.com/xxx
 ..."""
     )
     
     if st.button("Generate Scripts", type="primary", use_container_width=True):
         if input_text.strip():
-            with st.spinner("Parsing data..."):
+            with st.spinner("Processing..."):
                 episodes = parse_input(input_text)
                 
                 if series_name:
@@ -488,33 +638,37 @@ https://upfiles.com/xxx
                     st.error("Tidak ada episode yang terdeteksi!")
         else:
             st.warning("Paste data episode terlebih dahulu")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
-    st.subheader("Output Scripts")
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Output Scripts</div>', unsafe_allow_html=True)
     
     if st.session_state.generated_scripts:
         scripts = st.session_state.generated_scripts
         
-        # Episode selector
         episode_options = [f"Episode {ep}" for ep in sorted(scripts.keys(), key=int)]
-        selected_label = st.selectbox("Pilih Episode:", episode_options)
+        selected_label = st.selectbox("Pilih Episode", episode_options)
         selected_ep = selected_label.replace("Episode ", "") if selected_label else None
         
         if selected_ep and selected_ep in scripts:
             script_data = scripts[selected_ep]
             
-            # Info
-            st.info(f"**Series:** {script_data['series']} | **Embeds:** {script_data['embeds']} | **Resolutions:** {', '.join(script_data['resolutions'])}")
+            st.markdown(f"""
+            <div class="result-info">
+                <strong>Series:</strong> {script_data['series']} &nbsp;|&nbsp;
+                <strong>Embeds:</strong> {script_data['embeds']} &nbsp;|&nbsp;
+                <strong>Resolutions:</strong> {', '.join(script_data['resolutions'])}
+            </div>
+            """, unsafe_allow_html=True)
             
-            # Code output
             st.code(script_data['js'], language='javascript')
             
-            # Copy instruction
-            st.caption("Copy script di atas, lalu paste ke Console browser (F12) di halaman WordPress Add New Post")
+            st.caption("Copy script di atas → Paste ke Console browser (F12) di WordPress")
         
         st.divider()
         
-        # Download all as ZIP
         if st.button("Download Semua (ZIP)", use_container_width=True):
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -530,32 +684,18 @@ with col2:
             )
     else:
         st.info("Generate script terlebih dahulu untuk melihat output")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # Help section
 with st.expander("Panduan Format Input"):
     st.markdown("""
-### Format Embed
-```
-[LayarAsia] Series Name (2025) E001.720p.mp4
-<iframe src="https://server1/xxx" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>
+**Format Embed:**
+- `<iframe src="..." ...></iframe>` - Standalone iframe
+- `id | <iframe ...></iframe>` - ID dengan iframe
+- `[Tag] Series (Year) EXXX.720p.mp4` + iframe di baris berikut
 
-[LayarAsia] Series Name (2025) E001.720p.mp4|https://short.icu/xxx
-```
-
-### Format Download (setelah "Download Link")
-```
-Download Link
-
-https://www.mirrored.to/.../E001.360p.mp4_links  ← anchor (punya episode + resolusi)
-https://www.mirrored.to/.../E001.720p.mp4_links
-https://1024terabox.com/s/xxx                    ← ikut urutan resolusi
-https://1024terabox.com/s/xxx
-https://upfiles.com/xxx                          ← ikut urutan resolusi
-https://upfiles.com/xxx
-```
-
-### Aturan Penting
-- **Mirrored** harus ada episode (E001) dan resolusi (360p/720p/1080p) di URL
+**Format Download (setelah "Download Link"):**
+- Mirrored links harus ada episode (E001) dan resolusi (360p/720p/1080p)
 - Hosting lain mengikuti urutan resolusi dari Mirrored
-- Setiap hosting harus punya link per resolusi yang sama
 """)

@@ -421,11 +421,11 @@ const EPISODE_DATA = {{
 
 st.set_page_config(
     page_title="DramaStream Quickfill Generator",
-    page_icon="🎬",
+    page_icon="▶",
     layout="wide"
 )
 
-st.title("🎬 DramaStream Quickfill Generator")
+st.title("DramaStream Quickfill Generator")
 st.caption("Generate script autofill untuk posting episode ke WordPress")
 
 # Session state
@@ -434,35 +434,35 @@ if 'generated_scripts' not in st.session_state:
 if 'selected_episode' not in st.session_state:
     st.session_state.selected_episode = None
 
-# Sidebar settings
-st.sidebar.header("⚙️ Pengaturan")
-series_name = st.sidebar.text_input("Nama Series", placeholder="Contoh: I Live Alone")
-st.sidebar.caption("Kosongkan untuk auto-detect dari filename")
+# Sidebar settings (minimal)
+st.sidebar.header("Info")
+st.sidebar.caption("Script auto-detect series dari URL Mirrored. Isi manual jika ingin override.")
 
 # Main layout
 col1, col2 = st.columns([1, 1])
 
 with col1:
-    st.subheader("📝 Input Data")
+    st.subheader("Input Data")
+    
+    # Series name input - di area utama
+    series_name = st.text_input("Nama Series (opsional)", placeholder="Kosongkan untuk auto-detect dari URL")
     
     input_text = st.text_area(
         "Paste data episode:",
-        height=400,
-        placeholder="""[LayarAsia] Series Name (2025) E001.720p.mp4
-<iframe src="https://server1/xxx" ...></iframe>
-
-[LayarAsia] Series Name (2025) E001.720p.mp4|https://short.icu/xxx
+        height=350,
+        placeholder="""<iframe src="https://server1/xxx" ...></iframe>
+id | <iframe src="https://short.icu/xxx" ...></iframe>
 
 Download Link
 
 https://www.mirrored.to/.../E001.360p.mp4_links
 https://www.mirrored.to/.../E001.720p.mp4_links
-https://1024terabox.com/s/xxx
-https://1024terabox.com/s/xxx
+https://upfiles.com/xxx
+https://upfiles.com/xxx
 ..."""
     )
     
-    if st.button("🚀 Generate Scripts", type="primary", use_container_width=True):
+    if st.button("Generate Scripts", type="primary", use_container_width=True):
         if input_text.strip():
             with st.spinner("Parsing data..."):
                 episodes = parse_input(input_text)
@@ -483,14 +483,14 @@ https://1024terabox.com/s/xxx
                         }
                     st.session_state.generated_scripts = scripts
                     st.session_state.selected_episode = list(scripts.keys())[0] if scripts else None
-                    st.success(f"✅ Generated {len(scripts)} episode scripts!")
+                    st.success(f"Generated {len(scripts)} episode scripts!")
                 else:
-                    st.error("❌ Tidak ada episode yang terdeteksi!")
+                    st.error("Tidak ada episode yang terdeteksi!")
         else:
-            st.warning("⚠️ Paste data episode terlebih dahulu")
+            st.warning("Paste data episode terlebih dahulu")
 
 with col2:
-    st.subheader("📋 Output Scripts")
+    st.subheader("Output Scripts")
     
     if st.session_state.generated_scripts:
         scripts = st.session_state.generated_scripts
@@ -510,19 +510,19 @@ with col2:
             st.code(script_data['js'], language='javascript')
             
             # Copy instruction
-            st.caption("👆 Copy script di atas, lalu paste ke Console browser (F12) di halaman WordPress Add New Post")
+            st.caption("Copy script di atas, lalu paste ke Console browser (F12) di halaman WordPress Add New Post")
         
         st.divider()
         
         # Download all as ZIP
-        if st.button("📥 Download Semua (ZIP)", use_container_width=True):
+        if st.button("Download Semua (ZIP)", use_container_width=True):
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for ep_num, data in scripts.items():
                     zf.writestr(f"quickfill_E{ep_num}.js", data['js'])
             
             st.download_button(
-                label="💾 Simpan ZIP",
+                label="Simpan ZIP",
                 data=zip_buffer.getvalue(),
                 file_name="quickfill_scripts.zip",
                 mime="application/zip",
@@ -532,7 +532,7 @@ with col2:
         st.info("Generate script terlebih dahulu untuk melihat output")
 
 # Help section
-with st.expander("📖 Panduan Format Input"):
+with st.expander("Panduan Format Input"):
     st.markdown("""
 ### Format Embed
 ```

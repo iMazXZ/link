@@ -117,11 +117,16 @@ def inject_custom_css():
         color: #fafafa !important;
     }
     
-    /* Code block */
+    /* Code block - fixed height with scroll */
     .stCode, pre, code {
         background-color: #18181b !important;
         border: 1px solid #27272a !important;
         border-radius: 6px !important;
+    }
+    
+    .stCode {
+        max-height: 350px !important;
+        overflow-y: auto !important;
     }
     
     /* Alerts */
@@ -534,7 +539,9 @@ with col2:
         if ep_num and ep_num in scripts:
             d = scripts[ep_num]
             st.caption(f"**{d['series']}** · {d['embeds']} embeds · {', '.join(d['resolutions'])}")
-            st.code(d['js'], language='javascript')
+            
+            # Scrollable code container
+            st.markdown(f'''<div style="max-height: 350px; overflow-y: auto; background: #18181b; border: 1px solid #27272a; border-radius: 6px; padding: 1rem;"><pre style="margin: 0; white-space: pre-wrap; word-wrap: break-word; color: #a1a1aa; font-size: 0.75rem; line-height: 1.5;">{d["js"]}</pre></div>''', unsafe_allow_html=True)
             
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:

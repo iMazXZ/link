@@ -240,11 +240,13 @@ def parse_filename(filename: str) -> Optional[Dict]:
         series = match.group(1).strip().replace('.', ' ').replace('_', ' ')
         return {'series_name': series, 'year': '', 'episode': match.group(3), 'season': match.group(2)}
     
-    # Format 3: Just Exx anywhere
-    pattern3 = r'\[.*?\]\s*(.+?)\s*E(\d+)'
+    # Format 3: Just Exx anywhere - [Tag] Series.Name.Year.Exx
+    pattern3 = r'\[.*?\]\s*(.+?)[.\s]E(\d+)'
     match = re.search(pattern3, filename)
     if match:
-        return {'series_name': match.group(1).strip(), 'year': '', 'episode': match.group(2), 'season': None}
+        series = match.group(1).strip().replace('.', ' ').replace('_', ' ')
+        series = re.sub(r'\s+\d{4}\s*$', '', series).strip()
+        return {'series_name': series, 'year': '', 'episode': match.group(2), 'season': None}
     
     return None
 
@@ -254,11 +256,32 @@ def extract_resolution(text: str) -> str:
     return match.group(1) if match else '720p'
 
 
+def parse_url_path(url: str) -> Optional[Dict]:
+    """Parse episode info from URL path"""
+    path_match = re.search(r'/([^/]+)(?:\.[^/]+)?$', url)
+    if not path_match:
+        return None
+    
+    path = path_match.group(1).lower()
+    ep_match = re.search(r'-e(\d{1,3})(?:-|$)', path)
+    if not ep_match:
+        return None
+    
+    episode = ep_match.group(1).zfill(2)
+    res_match = re.search(r'-(360|480|720|1080|2160)p?(?:-|$)', path)
+    resolution = res_match.group(1) + 'p' if res_match else '720p'
+    series_match = re.search(r'^[^/]*?-(.+?)(?:-\d{4})?-e\d+', path)
+    series_name = series_match.group(1).replace('-', ' ').title() if series_match else 'Unknown'
+    
+    return {'episode': episode, 'resolution': resolution, 'series_name': series_name}
+
+
 def detect_hosting(url: str) -> str:
     url_lower = url.lower()
     hosts = {'terabox': 'Terabox', 'mirrored': 'Mirrored', 'mir.cr': 'Mirrored', 'upfiles': 'Upfiles',
              'buzzheavier': 'BuzzHeavier', 'gofile': 'Gofile', 'filemoon': 'FileMoon', 
-             'vidhide': 'VidHide', 'krakenfiles': 'Krakenfiles', 'vikingfile': 'Vikingfile', 'veev.to': 'Veev'}
+             'vidhide': 'VidHide', 'krakenfiles': 'Krakenfiles', 'vikingfile': 'Vikingfile', 'veev.to': 'Veev',
+             'bysetayico': 'Byse', 'doodstream': 'Doodstream', 'streamtape': 'StreamTape'}
     for key, name in hosts.items():
         if key in url_lower:
             return name
@@ -285,6 +308,7 @@ def parse_input(text: str) -> Dict[str, Episode]:
     embed_server_count = {}
     standalone_embeds = []
     veev_embeds = {}  # ep_num -> {resolution_num: iframe_code}
+    url_embeds = {}   # ep_num -> {resolution_num: iframe_code} for URL-parsed embeds
     
     i = 0
     while i < len(embed_lines):
@@ -302,7 +326,23 @@ def parse_input(text: str) -> Dict[str, Episode]:
                     i += 2
                     continue
         elif line.startswith('<iframe'):
-            standalone_embeds.append(line)
+            # Try to parse episode info from URL
+            src_match = re.search(r'src=["\']([^"\']+)["\']', line)
+            if src_match:
+                url = src_match.group(1)
+                url_info = parse_url_path(url)
+                if url_info:
+                    ep_num = url_info['episode']
+                    res = url_info['resolution']
+                    res_num = int(re.search(r'\d+', res).group())
+                    if ep_num not in url_embeds:
+                        url_embeds[ep_num] = {}
+                    if res_num not in url_embeds[ep_num] or res_num > max(url_embeds[ep_num].keys(), default=0):
+                        url_embeds[ep_num][res_num] = line
+                else:
+                    standalone_embeds.append(line)
+            else:
+                standalone_embeds.append(line)
         elif '|' in line and '<iframe' in line:
             parts = line.split('|', 1)
             iframe_part = parts[1].strip()
@@ -339,6 +379,18 @@ def parse_input(text: str) -> Dict[str, Episode]:
             embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
             episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=iframe_code))
     
+    # Add highest resolution URL-parsed embeds
+    for ep_num, res_dict in url_embeds.items():
+        if res_dict:
+            highest_res = max(res_dict.keys())
+            iframe_code = res_dict[highest_res]
+            if ep_num not in episodes:
+                src_match = re.search(r'src=["\']([^"\']+)["\']', iframe_code)
+                url_info = parse_url_path(src_match.group(1)) if src_match else None
+                episodes[ep_num] = Episode(number=ep_num, series_name=url_info['series_name'] if url_info else 'Unknown', year='', season='')
+            embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
+            episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=iframe_code))
+    
     for line in embed_lines:
         line = line.strip()
         if line.startswith('[') and '|' in line and '<iframe' not in line:
@@ -362,9 +414,20 @@ def parse_input(text: str) -> Dict[str, Episode]:
             if not line:
                 continue
             
-            # Direct URL
+            # Direct URL - try to parse episode info from path
             if line.startswith('http'):
-                download_urls.append(line)
+                url_info = parse_url_path(line)
+                if url_info:
+                    ep_num = url_info['episode']
+                    res = url_info['resolution']
+                    hosting = detect_hosting(line)
+                    if ep_num not in episodes:
+                        episodes[ep_num] = Episode(number=ep_num, series_name=url_info['series_name'], year='', season='')
+                    if res not in episodes[ep_num].downloads:
+                        episodes[ep_num].downloads[res] = []
+                    episodes[ep_num].downloads[res].append(DownloadLink(hosting=hosting, url=line, resolution=res))
+                else:
+                    download_urls.append(line)
             
             # BBCode [url=URL]filename[/url]
             elif line.startswith('[url='):

@@ -225,10 +225,26 @@ class Episode:
 
 
 def parse_filename(filename: str) -> Optional[Dict]:
-    pattern = r'\[.*?\]\s*(.+?)\s*\((\d{4})\)\s*E(\d+)'
-    match = re.search(pattern, filename)
+    """Parse filename - supports multiple formats"""
+    # Format 1: [Tag] Series Name (Year) EXXX
+    pattern1 = r'\[.*?\]\s*(.+?)\s*\((\d{4})\)\s*E(\d+)'
+    match = re.search(pattern1, filename)
     if match:
-        return {'series_name': match.group(1).strip(), 'year': match.group(2), 'episode': match.group(3)}
+        return {'series_name': match.group(1).strip(), 'year': match.group(2), 'episode': match.group(3), 'season': None}
+    
+    # Format 2: [Tag] Series.SxxExx or [Tag] Series SxxExx (no year)
+    pattern2 = r'\[.*?\]\s*(.+?)[.\s]S(\d+)E(\d+)'
+    match = re.search(pattern2, filename, re.IGNORECASE)
+    if match:
+        series = match.group(1).strip().replace('.', ' ').replace('_', ' ')
+        return {'series_name': series, 'year': '', 'episode': match.group(3), 'season': match.group(2)}
+    
+    # Format 3: Just Exx anywhere
+    pattern3 = r'\[.*?\]\s*(.+?)\s*E(\d+)'
+    match = re.search(pattern3, filename)
+    if match:
+        return {'series_name': match.group(1).strip(), 'year': '', 'episode': match.group(2), 'season': None}
+    
     return None
 
 
@@ -241,7 +257,7 @@ def detect_hosting(url: str) -> str:
     url_lower = url.lower()
     hosts = {'terabox': 'Terabox', 'mirrored': 'Mirrored', 'mir.cr': 'Mirrored', 'upfiles': 'Upfiles',
              'buzzheavier': 'BuzzHeavier', 'gofile': 'Gofile', 'filemoon': 'FileMoon', 
-             'vidhide': 'VidHide', 'krakenfiles': 'Krakenfiles'}
+             'vidhide': 'VidHide', 'krakenfiles': 'Krakenfiles', 'vikingfile': 'Vikingfile', 'veev.to': 'Veev'}
     for key, name in hosts.items():
         if key in url_lower:
             return name
@@ -271,14 +287,14 @@ def parse_input(text: str) -> Dict[str, Episode]:
     i = 0
     while i < len(embed_lines):
         line = embed_lines[i].strip()
-        if line.startswith('[') and '|' not in line:
+        if line.startswith('[') and '|' not in line and ' - <iframe' not in line:
             info = parse_filename(line)
             if info and i + 1 < len(embed_lines):
                 next_line = embed_lines[i + 1].strip()
                 if next_line.startswith('<iframe'):
                     ep_num = info['episode']
                     if ep_num not in episodes:
-                        episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info['year'])
+                        episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''))
                     embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
                     episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=next_line))
                     i += 2
@@ -290,33 +306,90 @@ def parse_input(text: str) -> Dict[str, Episode]:
             iframe_part = parts[1].strip()
             if iframe_part.startswith('<iframe'):
                 standalone_embeds.append(iframe_part)
+        # Handle "filename - <iframe..." format
+        elif ' - <iframe' in line:
+            parts = line.split(' - <iframe', 1)
+            filename = parts[0].strip()
+            iframe_code = '<iframe' + parts[1]
+            info = parse_filename(filename)
+            if info:
+                ep_num = info['episode']
+                if ep_num not in episodes:
+                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''))
+                embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
+                episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=iframe_code))
         i += 1
     
     for line in embed_lines:
         line = line.strip()
-        if line.startswith('[') and '|' in line:
+        if line.startswith('[') and '|' in line and '<iframe' not in line:
             parts = line.split('|', 1)
             info = parse_filename(parts[0].strip())
             if info:
                 ep_num = info['episode']
                 if ep_num not in episodes:
-                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info['year'])
+                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''))
                 embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
                 embed_code = f'<iframe src="{parts[1].strip()}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                 episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=embed_code))
     
     if download_section_start > 0:
-        download_urls = [l.strip() for l in lines[download_section_start + 1:] if l.strip().startswith('http')]
+        download_lines = lines[download_section_start + 1:]
+        download_urls = []
         episode_resolutions = {}
         
+        for line in download_lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Direct URL
+            if line.startswith('http'):
+                download_urls.append(line)
+            
+            # BBCode [url=URL]filename[/url]
+            elif line.startswith('[url='):
+                bbcode_match = re.match(r'\[url=([^\]]+)\](.+?)\[/url\]', line, re.IGNORECASE)
+                if bbcode_match:
+                    url, filename = bbcode_match.group(1), bbcode_match.group(2)
+                    ep_match = re.search(r'S\d+E(\d+)|E(\d+)', filename, re.IGNORECASE)
+                    res = extract_resolution(filename)
+                    if ep_match:
+                        ep_num = ep_match.group(1) or ep_match.group(2)
+                        hosting = detect_hosting(url)
+                        if ep_num not in episodes:
+                            info = parse_filename(filename)
+                            episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'] if info else 'Unknown', year='')
+                        if res not in episodes[ep_num].downloads:
+                            episodes[ep_num].downloads[res] = []
+                        episodes[ep_num].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
+            
+            # filename - URL
+            elif ' - http' in line:
+                parts = line.split(' - http', 1)
+                filename, url = parts[0].strip(), 'http' + parts[1].strip()
+                ep_match = re.search(r'S\d+E(\d+)|E(\d+)', filename, re.IGNORECASE)
+                res = extract_resolution(filename)
+                if ep_match:
+                    ep_num = ep_match.group(1) or ep_match.group(2)
+                    hosting = detect_hosting(url)
+                    if ep_num not in episodes:
+                        info = parse_filename(filename)
+                        episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'] if info else 'Unknown', year='')
+                    if res not in episodes[ep_num].downloads:
+                        episodes[ep_num].downloads[res] = []
+                    episodes[ep_num].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
+        
+        # Parse Mirrored links for episode/resolution structure
         for url in download_urls:
             if 'mirrored' in url.lower():
-                ep_match = re.search(r'E(\d+)', url)
+                # Require delimiter before E to avoid matching URL hashes
+                ep_match = re.search(r'[._\s]S(\d+)E(\d+)|[._\s]E(\d+)', url, re.IGNORECASE)
                 res = extract_resolution(url)
                 if ep_match:
-                    ep_num = ep_match.group(1)
+                    ep_num = ep_match.group(2) or ep_match.group(3)
                     if ep_num not in episodes:
-                        episodes[ep_num] = Episode(number=ep_num, series_name="Unknown", year="2025")
+                        episodes[ep_num] = Episode(number=ep_num, series_name="Unknown", year="")
                     if ep_num not in episode_resolutions:
                         episode_resolutions[ep_num] = []
                     if res not in episode_resolutions[ep_num]:

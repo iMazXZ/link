@@ -220,6 +220,7 @@ class Episode:
     number: str
     series_name: str
     year: str
+    season: str = ""
     embeds: List[EmbedData] = field(default_factory=list)
     downloads: Dict[str, List[DownloadLink]] = field(default_factory=dict)
 
@@ -283,6 +284,7 @@ def parse_input(text: str) -> Dict[str, Episode]:
     embed_lines = lines[:download_section_start] if download_section_start > 0 else lines
     embed_server_count = {}
     standalone_embeds = []
+    veev_embeds = {}  # ep_num -> {resolution_num: iframe_code}
     
     i = 0
     while i < len(embed_lines):
@@ -294,7 +296,7 @@ def parse_input(text: str) -> Dict[str, Episode]:
                 if next_line.startswith('<iframe'):
                     ep_num = info['episode']
                     if ep_num not in episodes:
-                        episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''))
+                        episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
                     embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
                     episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=next_line))
                     i += 2
@@ -315,10 +317,27 @@ def parse_input(text: str) -> Dict[str, Episode]:
             if info:
                 ep_num = info['episode']
                 if ep_num not in episodes:
-                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''))
-                embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
-                episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=iframe_code))
+                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
+                # For veev embeds, track by resolution and only keep highest
+                if 'veev.to' in iframe_code:
+                    res = extract_resolution(filename)
+                    res_num = int(re.search(r'\d+', res).group())
+                    if ep_num not in veev_embeds:
+                        veev_embeds[ep_num] = {}
+                    if res_num not in veev_embeds[ep_num] or res_num > max(veev_embeds[ep_num].keys(), default=0):
+                        veev_embeds[ep_num][res_num] = iframe_code
+                else:
+                    embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
+                    episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=iframe_code))
         i += 1
+    
+    # Add highest resolution veev embeds
+    for ep_num, res_dict in veev_embeds.items():
+        if res_dict and ep_num in episodes:
+            highest_res = max(res_dict.keys())
+            iframe_code = res_dict[highest_res]
+            embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
+            episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=iframe_code))
     
     for line in embed_lines:
         line = line.strip()
@@ -328,7 +347,7 @@ def parse_input(text: str) -> Dict[str, Episode]:
             if info:
                 ep_num = info['episode']
                 if ep_num not in episodes:
-                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''))
+                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
                 embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
                 embed_code = f'<iframe src="{parts[1].strip()}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                 episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=embed_code))
@@ -359,7 +378,7 @@ def parse_input(text: str) -> Dict[str, Episode]:
                         hosting = detect_hosting(url)
                         if ep_num not in episodes:
                             info = parse_filename(filename)
-                            episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'] if info else 'Unknown', year='')
+                            episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'] if info else 'Unknown', year='', season=info.get('season', '') if info else '')
                         if res not in episodes[ep_num].downloads:
                             episodes[ep_num].downloads[res] = []
                         episodes[ep_num].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
@@ -375,7 +394,7 @@ def parse_input(text: str) -> Dict[str, Episode]:
                     hosting = detect_hosting(url)
                     if ep_num not in episodes:
                         info = parse_filename(filename)
-                        episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'] if info else 'Unknown', year='')
+                        episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'] if info else 'Unknown', year='', season=info.get('season', '') if info else '')
                     if res not in episodes[ep_num].downloads:
                         episodes[ep_num].downloads[res] = []
                     episodes[ep_num].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
@@ -389,7 +408,7 @@ def parse_input(text: str) -> Dict[str, Episode]:
                 if ep_match:
                     ep_num = ep_match.group(2) or ep_match.group(3)
                     if ep_num not in episodes:
-                        episodes[ep_num] = Episode(number=ep_num, series_name="Unknown", year="")
+                        episodes[ep_num] = Episode(number=ep_num, series_name="Unknown", year="", season="")
                     if ep_num not in episode_resolutions:
                         episode_resolutions[ep_num] = []
                     if res not in episode_resolutions[ep_num]:
@@ -447,11 +466,18 @@ def generate_quickfill_js(episode: Episode, subbed: str = "Sub") -> str:
         resolutions_js.append(f'            {{ pixel: "{res}", links: [\n{links_js}\n                ] }}')
     resolutions_str = ',\n'.join(resolutions_js)
     
+    # Build title with season if available (strip leading zeros for display)
+    season_display = episode.season.lstrip('0') or episode.season if episode.season else ""
+    ep_display = episode.number.lstrip('0') or episode.number
+    season_str = f" Season {season_display}" if season_display else ""
+    ep_title = f"{episode.series_name}{season_str} Episode {ep_display}"
+    
     return f'''/**
- * DramaStream Quick-Fill - {episode.series_name} Episode {episode.number}
+ * DramaStream Quick-Fill - {ep_title}
  */
 const EPISODE_DATA = {{
     seriesName: "{episode.series_name}",
+    seasonNumber: "{episode.season}",
     episodeNumber: "{episode.number}",
     subbed: "{subbed}",
     embeds: [
@@ -546,7 +572,10 @@ const EPISODE_DATA = {{
     
     console.log('Starting auto-fill...');
     const d = EPISODE_DATA;
-    setField('title', `${{d.seriesName}} Episode ${{d.episodeNumber}} Subtitle Indonesia`);
+    const seasonNum = d.seasonNumber ? d.seasonNumber.replace(/^0+/, '') || d.seasonNumber : '';
+    const epNum = d.episodeNumber.replace(/^0+/, '') || d.episodeNumber;
+    const seasonPart = seasonNum ? ` Season ${{seasonNum}}` : '';
+    setField('title', `${{d.seriesName}}${{seasonPart}} Episode ${{epNum}} Subtitle Indonesia`);
     await sleep(DELAY);
     await setSeries(d.seriesName);
     await sleep(DELAY);

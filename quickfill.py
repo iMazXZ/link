@@ -263,17 +263,26 @@ def parse_url_path(url: str) -> Optional[Dict]:
         return None
     
     path = path_match.group(1).lower()
-    ep_match = re.search(r'-e(\d{1,3})(?:-|$)', path)
-    if not ep_match:
-        return None
     
-    episode = ep_match.group(1).zfill(2)
+    # Try SxxExx format first
+    sxxexx_match = re.search(r'-s(\d{1,2})e(\d{1,3})(?:-|$)', path)
+    if sxxexx_match:
+        season = sxxexx_match.group(1).zfill(2)
+        episode = sxxexx_match.group(2).zfill(2)
+    else:
+        # Try just Exx format
+        ep_match = re.search(r'-e(\d{1,3})(?:-|$)', path)
+        if not ep_match:
+            return None
+        season = None
+        episode = ep_match.group(1).zfill(2)
+    
     res_match = re.search(r'-(360|480|720|1080|2160)p?(?:-|$)', path)
     resolution = res_match.group(1) + 'p' if res_match else '720p'
-    series_match = re.search(r'^[^/]*?-(.+?)(?:-\d{4})?-e\d+', path)
+    series_match = re.search(r'^[^/]*?-(.+?)(?:-\d{4})?-(?:s\d+)?e\d+', path)
     series_name = series_match.group(1).replace('-', ' ').title() if series_match else 'Unknown'
     
-    return {'episode': episode, 'resolution': resolution, 'series_name': series_name}
+    return {'episode': episode, 'resolution': resolution, 'series_name': series_name, 'season': season}
 
 
 def detect_hosting(url: str) -> str:
@@ -281,7 +290,7 @@ def detect_hosting(url: str) -> str:
     hosts = {'terabox': 'Terabox', 'mirrored': 'Mirrored', 'mir.cr': 'Mirrored', 'upfiles': 'Upfiles',
              'buzzheavier': 'BuzzHeavier', 'gofile': 'Gofile', 'filemoon': 'FileMoon', 
              'vidhide': 'VidHide', 'krakenfiles': 'Krakenfiles', 'vikingfile': 'Vikingfile', 'veev.to': 'Veev',
-             'bysetayico': 'Byse', 'doodstream': 'Doodstream', 'streamtape': 'StreamTape'}
+             'bysetayico': 'FileMoon', 'doodstream': 'Doodstream', 'streamtape': 'StreamTape'}
     for key, name in hosts.items():
         if key in url_lower:
             return name
@@ -393,15 +402,20 @@ def parse_input(text: str) -> Dict[str, Episode]:
     
     for line in embed_lines:
         line = line.strip()
-        if line.startswith('[') and '|' in line and '<iframe' not in line:
+        if line.startswith('[') and '|' in line:
             parts = line.split('|', 1)
             info = parse_filename(parts[0].strip())
+            url_or_iframe = parts[1].strip()
             if info:
                 ep_num = info['episode']
                 if ep_num not in episodes:
                     episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
                 embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
-                embed_code = f'<iframe src="{parts[1].strip()}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
+                # Check if it's already an iframe or just a URL
+                if url_or_iframe.startswith('<iframe'):
+                    embed_code = url_or_iframe
+                else:
+                    embed_code = f'<iframe src="{url_or_iframe}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                 episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=embed_code))
     
     if download_section_start > 0:
@@ -635,7 +649,7 @@ const EPISODE_DATA = {{
     
     console.log('Starting auto-fill...');
     const d = EPISODE_DATA;
-    const seasonNum = d.seasonNumber ? d.seasonNumber.replace(/^0+/, '') || d.seasonNumber : '';
+    const seasonNum = (d.seasonNumber && d.seasonNumber !== 'None') ? d.seasonNumber.replace(/^0+/, '') || d.seasonNumber : '';
     const epNum = d.episodeNumber.replace(/^0+/, '') || d.episodeNumber;
     const seasonPart = seasonNum ? ` Season ${{seasonNum}}` : '';
     setField('title', `${{d.seriesName}}${{seasonPart}} Episode ${{epNum}} Subtitle Indonesia`);

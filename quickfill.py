@@ -712,8 +712,11 @@ with col2:
     st.markdown("### Output")
     if st.session_state.generated_scripts:
         scripts = st.session_state.generated_scripts
-        selected = st.selectbox("Episode", [f"E{ep}" for ep in scripts.keys()])
-        ep_num = selected.replace("E", "") if selected else None
+        # Create display options with series name
+        episode_options = [f"{scripts[ep]['series']} E{ep}" for ep in scripts.keys()]
+        selected = st.selectbox("Episode", episode_options)
+        # Extract episode number from selection
+        ep_num = selected.split(" E")[-1] if selected else None
         
         if ep_num and ep_num in scripts:
             d = scripts[ep_num]

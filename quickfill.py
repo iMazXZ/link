@@ -256,6 +256,54 @@ def extract_resolution(text: str) -> str:
     return match.group(1) if match else '720p'
 
 
+def parse_movie_filename(filename: str) -> Optional[Dict]:
+    """Parse movie filename: [tag] Title.Year.Res.ext -> returns title, year, resolution"""
+    pattern = r'\[.*?\]\s*(.+?)\.(\d{4})\.(\d{3,4})p'
+    match = re.search(pattern, filename, re.IGNORECASE)
+    if match:
+        title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
+        return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
+    return None
+
+
+def parse_movie_from_url(url: str) -> Optional[Dict]:
+    """Parse movie info from URL path like 'nunadrama-roofman-2025-1080p'"""
+    path_match = re.search(r'/([^/]+)(?:\.[^/]+)?$', url)
+    if not path_match:
+        return None
+    path = path_match.group(1).lower()
+    if re.search(r'-[se]\d+', path):
+        return None
+    movie_match = re.search(r'^[^-]+-(.+?)-(\d{4})-(\d{3,4})p?$', path)
+    if movie_match:
+        title = movie_match.group(1).replace('-', ' ').title()
+        return {'title': title, 'year': movie_match.group(2), 'resolution': movie_match.group(3) + 'p'}
+    return None
+
+
+def normalize_movie_title(title: str) -> str:
+    return title.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ').strip()
+
+
+def is_movie_format(text: str) -> bool:
+    """Check if input is movie format (no Exx pattern in header lines)"""
+    lines = text.strip().split('\n')
+    header_lines = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith('<iframe'):
+            break
+        if line.startswith('['):
+            header_lines.append(line)
+        if len(header_lines) >= 3:
+            break
+    for line in header_lines:
+        if re.search(r'[.\s_]E\d+|S\d+E\d+', line, re.IGNORECASE):
+            return False
+    return len(header_lines) > 0
+
 def parse_url_path(url: str) -> Optional[Dict]:
     """Parse episode info from URL path"""
     path_match = re.search(r'/([^/]+)(?:\.[^/]+)?$', url)
@@ -295,6 +343,114 @@ def detect_hosting(url: str) -> str:
         if key in url_lower:
             return name
     return 'Other'
+
+
+def parse_movie_input(text: str) -> Dict[str, Episode]:
+    """Parse movie input format and return movies as episodes (keyed by normalized title)"""
+    movies: Dict[str, Episode] = {}
+    lines = text.strip().split('\n')
+    
+    download_section_start = -1
+    for i, line in enumerate(lines):
+        if line.strip().lower() == 'download link':
+            download_section_start = i
+            break
+    
+    embed_lines = lines[:download_section_start] if download_section_start > 0 else lines
+    
+    # Phase 1: Collect movie headers
+    movie_list = []
+    for line in embed_lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith('<iframe'):
+            break
+        if line.startswith('['):
+            movie_info = parse_movie_filename(line)
+            if movie_info:
+                movie_list.append(movie_info)
+                key = normalize_movie_title(movie_info['title'])
+                if key not in movies:
+                    movies[key] = Episode(number='HD', series_name=movie_info['title'], year=movie_info['year'], season=None)
+    
+    # Phase 2: Collect standalone iframes and bysetayico embeds
+    standalone_iframes = []
+    byse_embeds = {}
+    
+    for line in embed_lines:
+        line = line.strip()
+        if line.startswith('<iframe'):
+            src_match = re.search(r'src=["\']([^"\']+)["\']', line)
+            if src_match:
+                url = src_match.group(1)
+                if 'bysetayico' in url:
+                    movie_info = parse_movie_from_url(url)
+                    if movie_info:
+                        key = normalize_movie_title(movie_info['title'])
+                        res_num = int(re.search(r'\d+', movie_info['resolution']).group())
+                        if key not in byse_embeds:
+                            byse_embeds[key] = {}
+                        if res_num not in byse_embeds[key] or res_num > max(byse_embeds[key].keys(), default=0):
+                            byse_embeds[key][res_num] = line
+                        continue
+            standalone_iframes.append(line)
+    
+    # Phase 3: Assign standalone iframes positionally
+    if movie_list and standalone_iframes:
+        num_movies = len(movie_list)
+        server_count = {normalize_movie_title(m['title']): 0 for m in movie_list}
+        for idx, iframe in enumerate(standalone_iframes):
+            movie_idx = idx % num_movies
+            movie_info = movie_list[movie_idx]
+            key = normalize_movie_title(movie_info['title'])
+            if key in movies:
+                server_count[key] += 1
+                movies[key].embeds.append(EmbedData(hostname=f"Server {server_count[key]}", embed=iframe))
+    
+    # Phase 4: Add highest resolution bysetayico embeds
+    for key, res_dict in byse_embeds.items():
+        if res_dict and key in movies:
+            highest_res = max(res_dict.keys())
+            iframe = res_dict[highest_res]
+            current_count = len(movies[key].embeds)
+            movies[key].embeds.append(EmbedData(hostname=f"Server {current_count + 1}", embed=iframe))
+    
+    # Phase 5: Parse downloads
+    if download_section_start > 0:
+        download_lines = lines[download_section_start + 1:]
+        for line in download_lines:
+            line = line.strip()
+            if not line:
+                continue
+            movie_info, url, hosting = None, None, None
+            
+            if 'mirrored' in line.lower() and line.startswith('http'):
+                url, hosting = line, 'Mirrored'
+                fn_match = re.search(r'/([^/]+\.mp4)', line)
+                if fn_match:
+                    movie_info = parse_movie_filename(fn_match.group(1))
+            elif line.startswith('[url='):
+                bbcode_match = re.match(r'\[url=([^\]]+)\](.+?)\[/url\]', line, re.IGNORECASE)
+                if bbcode_match:
+                    url, filename = bbcode_match.group(1), bbcode_match.group(2)
+                    movie_info = parse_movie_filename(filename)
+                    hosting = detect_hosting(url)
+            elif line.startswith('http'):
+                movie_info = parse_movie_from_url(line)
+                if movie_info:
+                    url, hosting = line, detect_hosting(line)
+            
+            if movie_info and url and hosting:
+                key = normalize_movie_title(movie_info['title'])
+                res = movie_info['resolution']
+                if key not in movies:
+                    movies[key] = Episode(number='HD', series_name=movie_info['title'], year=movie_info['year'], season=None)
+                if res not in movies[key].downloads:
+                    movies[key].downloads[res] = []
+                movies[key].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
+    
+    return movies
 
 
 def parse_input(text: str) -> Dict[str, Episode]:
@@ -547,7 +703,14 @@ def generate_quickfill_js(episode: Episode, subbed: str = "Sub") -> str:
     season_display = episode.season.lstrip('0') or episode.season if episode.season else ""
     ep_display = episode.number.lstrip('0') or episode.number
     season_str = f" Season {season_display}" if season_display else ""
-    ep_title = f"{episode.series_name}{season_str} Episode {ep_display}"
+    
+    # For movies (HD), omit Episode part from title
+    if episode.number == 'HD':
+        ep_title = f"{episode.series_name}{season_str}"
+        download_title = "HD"
+    else:
+        ep_title = f"{episode.series_name}{season_str} Episode {ep_display}"
+        download_title = f"Episode {episode.number}"
     
     return f'''/**
  * DramaStream Quick-Fill - {ep_title}
@@ -561,7 +724,7 @@ const EPISODE_DATA = {{
 {embeds_js}
     ],
     downloads: {{
-        episodeTitle: "Episode {episode.number}",
+        episodeTitle: "{download_title}",
         resolutions: [
 {resolutions_str}
         ]
@@ -652,7 +815,9 @@ const EPISODE_DATA = {{
     const seasonNum = (d.seasonNumber && d.seasonNumber !== 'None') ? d.seasonNumber.replace(/^0+/, '') || d.seasonNumber : '';
     const epNum = d.episodeNumber.replace(/^0+/, '') || d.episodeNumber;
     const seasonPart = seasonNum ? ` Season ${{seasonNum}}` : '';
-    setField('title', `${{d.seriesName}}${{seasonPart}} Episode ${{epNum}} Subtitle Indonesia`);
+    // For movies (HD), don't add Episode part
+    const episodePart = (epNum === 'HD') ? '' : ` Episode ${{epNum}}`;
+    setField('title', `${{d.seriesName}}${{seasonPart}}${{episodePart}} Subtitle Indonesia`);
     await sleep(DELAY);
     await setSeries(d.seriesName);
     await sleep(DELAY);
@@ -695,16 +860,29 @@ with col1:
     
     if st.button("Generate", type="primary", use_container_width=True):
         if input_text.strip():
-            episodes = parse_input(input_text)
+            # Detect if movie or series format
+            is_movie = is_movie_format(input_text)
+            if is_movie:
+                episodes = parse_movie_input(input_text)
+            else:
+                episodes = parse_input(input_text)
+            
             if series_name:
                 for ep in episodes.values():
                     ep.series_name = series_name
             if episodes:
-                scripts = {ep_num: {'js': generate_quickfill_js(ep), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name} for ep_num, ep in sorted(episodes.items(), key=lambda x: int(x[0]))}
+                # Sort keys appropriately
+                if is_movie:
+                    sorted_items = sorted(episodes.items())
+                    scripts = {key: {'js': generate_quickfill_js(ep), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'is_movie': True} for key, ep in sorted_items}
+                else:
+                    sorted_items = sorted(episodes.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)
+                    scripts = {ep_num: {'js': generate_quickfill_js(ep), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'is_movie': False} for ep_num, ep in sorted_items}
                 st.session_state.generated_scripts = scripts
-                st.success(f"Generated {len(scripts)} scripts")
+                item_type = "movie" if is_movie else "episode"
+                st.success(f"Generated {len(scripts)} {item_type} scripts")
             else:
-                st.error("No episodes detected")
+                st.error("No episodes/movies detected")
         else:
             st.warning("Enter episode data first")
 
@@ -712,14 +890,22 @@ with col2:
     st.markdown("### Output")
     if st.session_state.generated_scripts:
         scripts = st.session_state.generated_scripts
-        # Create display options with series name
-        episode_options = [f"{scripts[ep]['series']} E{ep}" for ep in scripts.keys()]
-        selected = st.selectbox("Episode", episode_options)
-        # Extract episode number from selection
-        ep_num = selected.split(" E")[-1] if selected else None
+        # Check if it's movie format
+        first_script = next(iter(scripts.values()), {})
+        is_movie = first_script.get('is_movie', False)
         
-        if ep_num and ep_num in scripts:
-            d = scripts[ep_num]
+        # Create display options based on type
+        if is_movie:
+            episode_options = list(scripts.keys())  # Just movie titles
+            selected = st.selectbox("Movie", episode_options)
+            key = selected
+        else:
+            episode_options = [f"{scripts[ep]['series']} E{ep}" for ep in scripts.keys()]
+            selected = st.selectbox("Episode", episode_options)
+            key = selected.split(" E")[-1] if selected else None
+        
+        if key and key in scripts:
+            d = scripts[key]
             st.caption(f"**{d['series']}** · {d['embeds']} embeds · {', '.join(d['resolutions'])}")
             
             # Use container with height limit via CSS
@@ -732,7 +918,11 @@ with col2:
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for n, data in scripts.items():
-                    zf.writestr(f"quickfill_E{n}.js", data['js'])
+                    if is_movie:
+                        safe_title = re.sub(r'[^\w\s-]', '', n).strip().replace(' ', '_')
+                        zf.writestr(f"quickfill_{safe_title}.js", data['js'])
+                    else:
+                        zf.writestr(f"quickfill_E{n}.js", data['js'])
             st.download_button("Download All (ZIP)", zip_buf.getvalue(), "quickfill.zip", "application/zip", use_container_width=True)
     else:
         st.info("Generate scripts to see output")

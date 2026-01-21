@@ -5,6 +5,7 @@ Shadcn-inspired Dark Dashboard UI
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import re
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
@@ -1007,17 +1008,18 @@ with col2:
         if key and key in scripts:
             d = scripts[key]
             title = d['series']
-            # Clickable title that copies to clipboard
-            st.markdown(f'''
+            # Clickable title that copies to clipboard using components.html
+            components.html(f'''
             <style>
-            .copy-title {{ cursor: pointer; color: #fafafa; font-weight: 600; }}
+            .copy-title {{ cursor: pointer; color: #fafafa; font-weight: 600; font-family: system-ui, sans-serif; }}
             .copy-title:hover {{ text-decoration: underline; color: #3b82f6; }}
+            p {{ color: #a1a1aa; font-size: 14px; margin: 0; font-family: system-ui, sans-serif; }}
             </style>
-            <p style="color: #a1a1aa; margin-bottom: 8px;">
-                <span class="copy-title" onclick="navigator.clipboard.writeText('{title}').then(() => this.style.color='#22c55e');" title="Click to copy">{title}</span>
+            <p>
+                <span class="copy-title" onclick="navigator.clipboard.writeText('{title}').then(() => {{ this.style.color='#22c55e'; setTimeout(() => this.style.color='#fafafa', 1500); }});" title="Click to copy">{title}</span>
                 · {d['embeds']} embeds · {', '.join(d['resolutions'])}
             </p>
-            ''', unsafe_allow_html=True)
+            ''', height=30)
             
             # Use container with height limit via CSS
             st.markdown("""<style>.code-container div[data-testid="stCode"] { max-height: 300px; overflow-y: auto; }</style>""", unsafe_allow_html=True)

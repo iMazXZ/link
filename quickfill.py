@@ -225,6 +225,37 @@ class Episode:
     downloads: Dict[str, List[DownloadLink]] = field(default_factory=dict)
 
 
+# Embed hostname configuration - priority order (first = highest priority)
+EMBED_HOST_CONFIG = [
+    {'pattern': 'nuna.upns.pro', 'name': 'Upnshare'},
+    {'pattern': 'short.icu', 'name': 'HydraX'},
+    {'pattern': 'hqq.to', 'name': 'LuluTV'},
+    {'pattern': 'nuna.p2pstream.vip', 'name': 'StreamP2P'},
+    {'pattern': 'veev.to', 'name': 'Veev'},
+    {'pattern': 'bysetayico.com', 'name': 'FileMoon'},
+]
+
+
+def get_embed_hostname(iframe: str) -> str:
+    src_match = re.search(r'src=["\']([^"\']+)["\']', iframe)
+    if src_match:
+        url = src_match.group(1).lower()
+        for config in EMBED_HOST_CONFIG:
+            if config['pattern'] in url:
+                return config['name']
+    return 'Other'
+
+
+def get_embed_priority(iframe: str) -> int:
+    src_match = re.search(r'src=["\']([^"\']+)["\']', iframe)
+    if src_match:
+        url = src_match.group(1).lower()
+        for idx, config in enumerate(EMBED_HOST_CONFIG):
+            if config['pattern'] in url:
+                return idx
+    return 999
+
+
 def parse_filename(filename: str) -> Optional[Dict]:
     """Parse filename - supports multiple formats"""
     # Format 1: [Tag] Series Name (Year) EXXX
@@ -258,11 +289,27 @@ def extract_resolution(text: str) -> str:
 
 def parse_movie_filename(filename: str) -> Optional[Dict]:
     """Parse movie filename: [tag] Title.Year.Res.ext -> returns title, year, resolution"""
-    pattern = r'\[.*?\]\s*(.+?)\.(\d{4})\.(\d{3,4})p'
-    match = re.search(pattern, filename, re.IGNORECASE)
+    # Pattern 1: [tag] Title.Year.Resolution.ext (dots)
+    pattern1 = r'\[.*?\]\s*(.+?)\.(\d{4})\.(\d{3,4})p'
+    match = re.search(pattern1, filename, re.IGNORECASE)
     if match:
         title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
         return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
+    
+    # Pattern 2: [tag] Title Year.Resolution.ext (spaces in title)
+    pattern2 = r'\[.*?\]\s*(.+?)\s+(\d{4})\.(\d{3,4})p'
+    match = re.search(pattern2, filename, re.IGNORECASE)
+    if match:
+        title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
+        return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
+    
+    # Pattern 3: [tag]_Title_Year.Resolution.ext (underscores)
+    pattern3 = r'\[.*?\]_(.+?)_(\d{4})\.(\d{3,4})p'
+    match = re.search(pattern3, filename, re.IGNORECASE)
+    if match:
+        title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
+        return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
+    
     return None
 
 
@@ -405,16 +452,20 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
             movie_info = movie_list[movie_idx]
             key = normalize_movie_title(movie_info['title'])
             if key in movies:
-                server_count[key] += 1
-                movies[key].embeds.append(EmbedData(hostname=f"Server {server_count[key]}", embed=iframe))
+                hostname = get_embed_hostname(iframe)
+                movies[key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
     
     # Phase 4: Add highest resolution bysetayico embeds
     for key, res_dict in byse_embeds.items():
         if res_dict and key in movies:
             highest_res = max(res_dict.keys())
             iframe = res_dict[highest_res]
-            current_count = len(movies[key].embeds)
-            movies[key].embeds.append(EmbedData(hostname=f"Server {current_count + 1}", embed=iframe))
+            hostname = get_embed_hostname(iframe)
+            movies[key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
+    
+    # Sort embeds by priority
+    for key in movies:
+        movies[key].embeds.sort(key=lambda e: get_embed_priority(e.embed))
     
     # Phase 5: Parse downloads
     if download_section_start > 0:
@@ -449,6 +500,23 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
                 if res not in movies[key].downloads:
                     movies[key].downloads[res] = []
                 movies[key].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
+        
+        # Parse Terabox links positionally (no filename info in URL)
+        terabox_links = [line.strip() for line in download_lines if 'terabox' in line.lower() and line.strip().startswith('http')]
+        if terabox_links and movie_list:
+            resolutions = ['720p', '1080p']
+            num_movies = len(movie_list)
+            for idx, url in enumerate(terabox_links):
+                movie_idx = idx // 2
+                res_idx = idx % 2
+                if movie_idx < num_movies:
+                    movie_info = movie_list[movie_idx]
+                    key = normalize_movie_title(movie_info['title'])
+                    res = resolutions[res_idx]
+                    if key in movies:
+                        if res not in movies[key].downloads:
+                            movies[key].downloads[res] = []
+                        movies[key].downloads[res].append(DownloadLink(hosting='Terabox', url=url, resolution=res))
     
     return movies
 
@@ -475,6 +543,22 @@ def parse_input(text: str) -> Dict[str, Episode]:
     veev_embeds = {}  # ep_num -> {resolution_num: iframe_code}
     url_embeds = {}   # ep_num -> {resolution_num: iframe_code} for URL-parsed embeds
     
+    # Collect series headers (consecutive filenames at start, before iframes) for positional mapping
+    series_header_list = []
+    for line in embed_lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith('<iframe'):
+            break
+        if line.startswith('[') and '|' not in line:
+            info = parse_filename(line)
+            if info:
+                series_header_list.append(info)
+                ep_num = info['episode']
+                if ep_num not in episodes:
+                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
+    
     i = 0
     while i < len(embed_lines):
         line = embed_lines[i].strip()
@@ -486,8 +570,8 @@ def parse_input(text: str) -> Dict[str, Episode]:
                     ep_num = info['episode']
                     if ep_num not in episodes:
                         episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
-                    embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
-                    episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=next_line))
+                    hostname = get_embed_hostname(next_line)
+                    episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=next_line))
                     i += 2
                     continue
         elif line.startswith('<iframe'):
@@ -532,8 +616,8 @@ def parse_input(text: str) -> Dict[str, Episode]:
                     if res_num not in veev_embeds[ep_num] or res_num > max(veev_embeds[ep_num].keys(), default=0):
                         veev_embeds[ep_num][res_num] = iframe_code
                 else:
-                    embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
-                    episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=iframe_code))
+                    hostname = get_embed_hostname(iframe_code)
+                    episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
         i += 1
     
     # Add highest resolution veev embeds
@@ -541,8 +625,8 @@ def parse_input(text: str) -> Dict[str, Episode]:
         if res_dict and ep_num in episodes:
             highest_res = max(res_dict.keys())
             iframe_code = res_dict[highest_res]
-            embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
-            episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=iframe_code))
+            hostname = get_embed_hostname(iframe_code)
+            episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
     
     # Add highest resolution URL-parsed embeds
     for ep_num, res_dict in url_embeds.items():
@@ -553,9 +637,20 @@ def parse_input(text: str) -> Dict[str, Episode]:
                 src_match = re.search(r'src=["\']([^"\']+)["\']', iframe_code)
                 url_info = parse_url_path(src_match.group(1)) if src_match else None
                 episodes[ep_num] = Episode(number=ep_num, series_name=url_info['series_name'] if url_info else 'Unknown', year='', season='')
-            embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
-            episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=iframe_code))
+            hostname = get_embed_hostname(iframe_code)
+            episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
     
+    # Assign standalone iframes positionally if we have series headers
+    if series_header_list and standalone_embeds:
+        num_episodes = len(series_header_list)
+        for idx, iframe in enumerate(standalone_embeds):
+            ep_idx = idx % num_episodes
+            ep_num = series_header_list[ep_idx]['episode']
+            if ep_num in episodes:
+                hostname = get_embed_hostname(iframe)
+                episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe))
+        standalone_embeds = []
+
     for line in embed_lines:
         line = line.strip()
         if line.startswith('[') and '|' in line:
@@ -566,13 +661,14 @@ def parse_input(text: str) -> Dict[str, Episode]:
                 ep_num = info['episode']
                 if ep_num not in episodes:
                     episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
-                embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
+                hostname = get_embed_hostname(iframe_code)
                 # Check if it's already an iframe or just a URL
                 if url_or_iframe.startswith('<iframe'):
                     embed_code = url_or_iframe
                 else:
                     embed_code = f'<iframe src="{url_or_iframe}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
-                episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=embed_code))
+                hostname = get_embed_hostname(embed_code)
+                episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=embed_code))
     
     if download_section_start > 0:
         download_lines = lines[download_section_start + 1:]
@@ -684,8 +780,12 @@ def parse_input(text: str) -> Dict[str, Episode]:
         if standalone_embeds and len(episodes) == 1:
             ep_num = list(episodes.keys())[0]
             for embed in standalone_embeds:
-                embed_server_count[ep_num] = embed_server_count.get(ep_num, 0) + 1
-                episodes[ep_num].embeds.append(EmbedData(hostname=f"Server {embed_server_count[ep_num]}", embed=embed))
+                hostname = get_embed_hostname(embed)
+                episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=embed))
+    
+    # Sort embeds by priority
+    for ep in episodes.values():
+        ep.embeds.sort(key=lambda x: get_embed_priority(x.embed))
     
     return episodes
 

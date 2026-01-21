@@ -1006,7 +1006,18 @@ with col2:
         
         if key and key in scripts:
             d = scripts[key]
-            st.caption(f"**{d['series']}** · {d['embeds']} embeds · {', '.join(d['resolutions'])}")
+            title = d['series']
+            # Clickable title that copies to clipboard
+            st.markdown(f'''
+            <style>
+            .copy-title {{ cursor: pointer; color: #fafafa; font-weight: 600; }}
+            .copy-title:hover {{ text-decoration: underline; color: #3b82f6; }}
+            </style>
+            <p style="color: #a1a1aa; margin-bottom: 8px;">
+                <span class="copy-title" onclick="navigator.clipboard.writeText('{title}').then(() => this.style.color='#22c55e');" title="Click to copy">{title}</span>
+                · {d['embeds']} embeds · {', '.join(d['resolutions'])}
+            </p>
+            ''', unsafe_allow_html=True)
             
             # Use container with height limit via CSS
             st.markdown("""<style>.code-container div[data-testid="stCode"] { max-height: 300px; overflow-y: auto; }</style>""", unsafe_allow_html=True)

@@ -7,10 +7,33 @@ Shadcn-inspired Dark Dashboard UI
 import streamlit as st
 import streamlit.components.v1 as components
 import re
+import requests
+import time
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 import zipfile
 import io
+
+# =============================================================================
+# OUO.IO SHORTENING
+# =============================================================================
+
+DEFAULT_OUO_API_KEY = "8pHuHRq5"
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def shorten_with_ouo_cached(api_key: str, url: str) -> str:
+    """Shorten URL dengan ouo.io API (cached)"""
+    if not api_key:
+        return url
+    try:
+        api_url = f'https://ouo.io/api/{api_key}?s={url}'
+        response = requests.get(api_url, timeout=10)
+        if response.status_code == 200:
+            time.sleep(0.3)  # Rate limiting
+            return response.text.strip()
+        return url
+    except:
+        return url
 
 # =============================================================================
 # CUSTOM CSS - SHADCN DARK THEME
@@ -393,6 +416,32 @@ def detect_hosting(url: str) -> str:
     return 'Other'
 
 
+def parse_bbcode(line: str) -> Optional[Dict]:
+    """Parse BBCode format [url=URL]filename[/url]"""
+    match = re.match(r'\[url=([^\]]+)\](.+?)\[/url\]', line, re.IGNORECASE)
+    if match:
+        return {'url': match.group(1), 'filename': match.group(2)}
+    return None
+
+
+def detect_embed_host_from_url(url: str) -> str:
+    """Detect embed hostname dari URL"""
+    url_lower = url.lower()
+    hosts = {
+        'short.icu': 'HydraX',
+        'waaw.to': 'Waaw',
+        'p2pstream': 'StreamP2P',
+        'upns.pro': 'Upnshare',
+        'bysetayico': 'FileMoon',
+        'hqq.to': 'LuluTV',
+        'veev.to': 'Veev',
+    }
+    for key, name in hosts.items():
+        if key in url_lower:
+            return name
+    return 'Other'
+
+
 def parse_movie_input(text: str) -> Dict[str, Episode]:
     """Parse movie input format and return movies as episodes (keyed by normalized title)"""
     movies: Dict[str, Episode] = {}
@@ -546,7 +595,9 @@ def find_episode_key(episodes: Dict[str, Episode], series_name: str, ep_num: str
     return None
 
 
-def parse_input(text: str) -> Dict[str, Episode]:
+def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") -> Dict[str, Episode]:
+    if shorten_hosts is None:
+        shorten_hosts = set()
     episodes: Dict[str, Episode] = {}
     lines = text.strip().split('\n')
     
@@ -569,13 +620,43 @@ def parse_input(text: str) -> Dict[str, Episode]:
     url_embeds = {}   # ep_num -> {resolution_num: iframe_code} for URL-parsed embeds
     
     # Collect series headers (consecutive filenames at start, before iframes) for positional mapping
+    # Also handle BBCode embed format: [url=URL][filename][/url]
     series_header_list = []  # List of {episode, series_name, season, year, unique_key} in order
+    bbcode_embeds = []  # Store BBCode embeds to process later
+    
     for line in embed_lines:
         line = line.strip()
         if not line:
             continue
         if line.startswith('<iframe'):
             break
+        
+        # Check for BBCode embed format: [url=URL][filename][/url]
+        if line.startswith('[url='):
+            bbcode = parse_bbcode(line)
+            if bbcode:
+                info = parse_filename(bbcode['filename'])
+                if info:
+                    unique_key = f"{info['series_name']}_{info['episode']}"
+                    info['unique_key'] = unique_key
+                    info['bbcode_url'] = bbcode['url']  # Store the URL
+                    series_header_list.append(info)
+                    
+                    if unique_key not in episodes:
+                        episodes[unique_key] = Episode(
+                            number=info['episode'],
+                            series_name=info['series_name'],
+                            year=info.get('year', ''),
+                            season=info.get('season', '')
+                        )
+                    
+                    # Convert BBCode URL to iframe and add as embed
+                    hostname = detect_embed_host_from_url(bbcode['url'])
+                    iframe = f'<iframe src="{bbcode["url"]}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
+                    episodes[unique_key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
+                continue
+        
+        # Regular filename header (no URL)
         if line.startswith('[') and '|' not in line:
             info = parse_filename(line)
             if info:
@@ -716,49 +797,92 @@ def parse_input(text: str) -> Dict[str, Episode]:
         download_urls = []
         episode_resolutions = {}
         
+        # Positional grouping for plain URLs
+        current_resolution = None
+        current_key = None
+        resolution_links = {}  # key -> {res -> [(hosting, url)]}
+        
         for line in download_lines:
             line = line.strip()
             if not line:
                 continue
             
-            # Direct URL - try to parse episode info from path
-            if line.startswith('http'):
-                url_info = parse_url_path(line)
-                if url_info:
-                    ep_num = url_info['episode']
-                    res = url_info['resolution']
-                    series_name = url_info['series_name']
-                    hosting = detect_hosting(line)
-                    
-                    # Find matching episode using unique key
-                    key = find_episode_key(episodes, series_name, ep_num)
-                    if not key:
-                        # Create new episode if not found
-                        key = f"{series_name}_{ep_num}"
-                        episodes[key] = Episode(number=ep_num, series_name=series_name, year='', season='')
-                    
-                    if res not in episodes[key].downloads:
-                        episodes[key].downloads[res] = []
-                    episodes[key].downloads[res].append(DownloadLink(hosting=hosting, url=line, resolution=res))
-                else:
-                    download_urls.append(line)
-            
-            # BBCode [url=URL]filename[/url]
-            elif line.startswith('[url='):
+            # BBCode [url=URL]filename[/url] - has resolution info
+            if line.startswith('[url='):
                 bbcode_match = re.match(r'\[url=([^\]]+)\](.+?)\[/url\]', line, re.IGNORECASE)
                 if bbcode_match:
                     url, filename = bbcode_match.group(1), bbcode_match.group(2)
                     ep_match = re.search(r'S\d+E(\d+)|E(\d+)', filename, re.IGNORECASE)
                     res = extract_resolution(filename)
+                    
                     if ep_match:
                         ep_num = ep_match.group(1) or ep_match.group(2)
                         hosting = detect_hosting(url)
-                        if ep_num not in episodes:
-                            info = parse_filename(filename)
-                            episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'] if info else 'Unknown', year='', season=info.get('season', '') if info else '')
-                        if res not in episodes[ep_num].downloads:
-                            episodes[ep_num].downloads[res] = []
-                        episodes[ep_num].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
+                        
+                        # Apply shortening if enabled
+                        if hosting in shorten_hosts and api_key:
+                            url = shorten_with_ouo_cached(api_key, url)
+                        
+                        # Find or create episode with unique key
+                        info = parse_filename(filename)
+                        if info:
+                            key = find_episode_key(episodes, info['series_name'], ep_num)
+                            if not key:
+                                key = f"{info['series_name']}_{ep_num}"
+                                episodes[key] = Episode(number=ep_num, series_name=info['series_name'], year='', season=info.get('season', ''))
+                        else:
+                            key = ep_num
+                            if key not in episodes:
+                                episodes[key] = Episode(number=ep_num, series_name='Unknown', year='', season='')
+                        
+                        # Update current context for positional grouping
+                        current_key = key
+                        current_resolution = res
+                        
+                        if key not in resolution_links:
+                            resolution_links[key] = {}
+                        if res not in resolution_links[key]:
+                            resolution_links[key][res] = []
+                        resolution_links[key][res].append((hosting, url))
+            
+            # Direct URL - inherit current resolution if no resolution in URL
+            elif line.startswith('http'):
+                url_info = parse_url_path(line)
+                hosting = detect_hosting(line)
+                
+                # Apply shortening if enabled
+                url = line
+                if hosting in shorten_hosts and api_key:
+                    url = shorten_with_ouo_cached(api_key, line)
+                
+                if url_info:
+                    # URL has explicit resolution info
+                    ep_num = url_info['episode']
+                    res = url_info['resolution']
+                    series_name = url_info['series_name']
+                    
+                    key = find_episode_key(episodes, series_name, ep_num)
+                    if not key:
+                        key = f"{series_name}_{ep_num}"
+                        episodes[key] = Episode(number=ep_num, series_name=series_name, year='', season='')
+                    
+                    current_key = key
+                    current_resolution = res
+                    
+                    if key not in resolution_links:
+                        resolution_links[key] = {}
+                    if res not in resolution_links[key]:
+                        resolution_links[key][res] = []
+                    resolution_links[key][res].append((hosting, url))
+                elif current_key and current_resolution:
+                    # Use current context from previous BBCode line
+                    if current_key not in resolution_links:
+                        resolution_links[current_key] = {}
+                    if current_resolution not in resolution_links[current_key]:
+                        resolution_links[current_key][current_resolution] = []
+                    resolution_links[current_key][current_resolution].append((hosting, url))
+                else:
+                    download_urls.append(line)
             
             # filename - URL
             elif ' - http' in line:
@@ -776,17 +900,24 @@ def parse_input(text: str) -> Dict[str, Episode]:
                         episodes[ep_num].downloads[res] = []
                     episodes[ep_num].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
         
-        # Parse Mirrored links for episode/resolution structure
+        # Assign resolution_links to episodes
+        for key, res_dict in resolution_links.items():
+            if key in episodes:
+                for res, links in res_dict.items():
+                    if res not in episodes[key].downloads:
+                        episodes[key].downloads[res] = []
+                    for hosting, url in links:
+                        episodes[key].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
+        
+        # Parse Mirrored links for episode/resolution structure (legacy support)
         for url in download_urls:
             if 'mirrored' in url.lower():
-                # Extract series name and episode from URL like [LayarAsia]_Series.Name.E01.720p.mp4_links
                 series_match = re.search(r'\[.*?\]_(.+?)[._]E(\d+)', url)
                 if series_match:
                     series_from_url = series_match.group(1).replace('.', ' ').replace('_', ' ')
                     ep_num = series_match.group(2)
                     res = extract_resolution(url)
                     
-                    # Find matching episode using unique key
                     key = find_episode_key(episodes, series_from_url, ep_num)
                     if not key:
                         key = f"{series_from_url}_{ep_num}"
@@ -799,39 +930,6 @@ def parse_input(text: str) -> Dict[str, Episode]:
                     if res not in episodes[key].downloads:
                         episodes[key].downloads[res] = []
                     episodes[key].downloads[res].append(DownloadLink(hosting='Mirrored', url=url, resolution=res))
-        
-        # Second pass: assign non-Mirrored links to resolutions in order, using unique key
-        current_key = None
-        current_res_index = 0
-        current_hosting = None
-        
-        for url in download_urls:
-            if 'mirrored' in url.lower():
-                # This is a mirrored link - update current episode key
-                series_match = re.search(r'\[.*?\]_(.+?)[._]E(\d+)', url)
-                if series_match:
-                    series_from_url = series_match.group(1).replace('.', ' ').replace('_', ' ')
-                    ep_num = series_match.group(2)
-                    new_key = find_episode_key(episodes, series_from_url, ep_num)
-                    
-                    if new_key != current_key:
-                        current_key = new_key
-                        current_res_index = 0
-                        current_hosting = 'Mirrored'
-                    else:
-                        current_res_index += 1
-            else:
-                # Non-mirrored link - assign to current episode/resolution
-                if current_key and current_key in episode_resolutions:
-                    resolutions = episode_resolutions[current_key]
-                    hosting = detect_hosting(url)
-                    if hosting != current_hosting:
-                        current_hosting = hosting
-                        current_res_index = 0
-                    if current_res_index < len(resolutions):
-                        res = resolutions[current_res_index]
-                        episodes[current_key].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
-                        current_res_index += 1
         
         for url in download_urls:
             if 'mirrored' in url.lower():
@@ -1022,16 +1120,36 @@ col1, col2 = st.columns(2, gap="large")
 with col1:
     st.markdown("### Input")
     series_name = st.text_input("Series Name (optional)", placeholder="Auto-detect from URL")
-    input_text = st.text_area("Episode Data", height=300, placeholder="<iframe src=...></iframe>\nid | <iframe ...></iframe>\n\nDownload Link\n\nhttps://mirrored.to/...")
+    input_text = st.text_area("Episode Data", height=250, placeholder="<iframe src=...></iframe>\nid | <iframe ...></iframe>\n[url=URL][filename][/url]\n\nDownload Link\n\nhttps://mirrored.to/...")
+    
+    # ouo.io Shortening Settings
+    with st.expander("🔗 ouo.io Shortening", expanded=False):
+        ouo_enabled = st.checkbox("Enable Link Shortening", value=False, key="ouo_enabled")
+        if ouo_enabled:
+            ouo_api_key = st.text_input("API Key", value=DEFAULT_OUO_API_KEY, type="password", key="ouo_api_key")
+            available_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored']
+            shorten_hosts = st.multiselect(
+                "Servers to shorten",
+                options=available_hosts,
+                default=['BuzzHeavier', 'Gofile'],
+                key="shorten_hosts"
+            )
+            st.caption("Shortened links are cached for 1 hour")
+        else:
+            ouo_api_key = ""
+            shorten_hosts = []
     
     if st.button("Generate", type="primary", use_container_width=True):
         if input_text.strip():
+            # Prepare shortening settings
+            shorten_set = set(shorten_hosts) if ouo_enabled else set()
+            
             # Detect if movie or series format
             is_movie = is_movie_format(input_text)
             if is_movie:
                 episodes = parse_movie_input(input_text)
             else:
-                episodes = parse_input(input_text)
+                episodes = parse_input(input_text, shorten_set, ouo_api_key if ouo_enabled else "")
             
             if series_name:
                 for ep in episodes.values():

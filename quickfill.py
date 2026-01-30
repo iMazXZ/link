@@ -522,6 +522,30 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
     return movies
 
 
+def normalize_series_name(name: str) -> str:
+    """Normalize series name for comparison"""
+    return name.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ').strip()
+
+
+def find_episode_key(episodes: Dict[str, Episode], series_name: str, ep_num: str) -> Optional[str]:
+    """Find episode key in dict by series name (fuzzy) and episode number"""
+    # First try exact match
+    exact_key = f"{series_name}_{ep_num}"
+    if exact_key in episodes:
+        return exact_key
+    
+    # Try normalized match
+    normalized_input = normalize_series_name(series_name)
+    for key, ep in episodes.items():
+        if ep.number == ep_num:
+            normalized_stored = normalize_series_name(ep.series_name)
+            # Check if one contains the other (partial match)
+            if normalized_input in normalized_stored or normalized_stored in normalized_input:
+                return key
+    
+    return None
+
+
 def parse_input(text: str) -> Dict[str, Episode]:
     episodes: Dict[str, Episode] = {}
     lines = text.strip().split('\n')
@@ -545,7 +569,7 @@ def parse_input(text: str) -> Dict[str, Episode]:
     url_embeds = {}   # ep_num -> {resolution_num: iframe_code} for URL-parsed embeds
     
     # Collect series headers (consecutive filenames at start, before iframes) for positional mapping
-    series_header_list = []
+    series_header_list = []  # List of {episode, series_name, season, year, unique_key} in order
     for line in embed_lines:
         line = line.strip()
         if not line:
@@ -555,10 +579,20 @@ def parse_input(text: str) -> Dict[str, Episode]:
         if line.startswith('[') and '|' not in line:
             info = parse_filename(line)
             if info:
+                # Create unique key: series_name + episode number
+                unique_key = f"{info['series_name']}_{info['episode']}"
+                info['unique_key'] = unique_key
                 series_header_list.append(info)
-                ep_num = info['episode']
-                if ep_num not in episodes:
-                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
+                if unique_key not in episodes:
+                    episodes[unique_key] = Episode(
+                        number=info['episode'],
+                        series_name=info['series_name'],
+                        year=info.get('year', ''),
+                        season=info.get('season', '')
+                    )
+    
+    # Skip filename+iframe pattern for episodes in series_header_list (positional assignment)
+    series_header_episodes = {h['episode'] for h in series_header_list}
     
     i = 0
     while i < len(embed_lines):
@@ -567,7 +601,8 @@ def parse_input(text: str) -> Dict[str, Episode]:
             info = parse_filename(line)
             if info and i + 1 < len(embed_lines):
                 next_line = embed_lines[i + 1].strip()
-                if next_line.startswith('<iframe'):
+                # Skip if episode is in series_header_list (will be assigned positionally)
+                if next_line.startswith('<iframe') and info['episode'] not in series_header_episodes:
                     ep_num = info['episode']
                     if ep_num not in episodes:
                         episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
@@ -584,11 +619,20 @@ def parse_input(text: str) -> Dict[str, Episode]:
                 if url_info:
                     ep_num = url_info['episode']
                     res = url_info['resolution']
+                    series_name = url_info['series_name']
                     res_num = int(re.search(r'\d+', res).group())
-                    if ep_num not in url_embeds:
-                        url_embeds[ep_num] = {}
-                    if res_num not in url_embeds[ep_num] or res_num > max(url_embeds[ep_num].keys(), default=0):
-                        url_embeds[ep_num][res_num] = line
+                    
+                    # Find matching episode using unique key
+                    key = find_episode_key(episodes, series_name, ep_num)
+                    if key:
+                        # Track by unique key and resolution, keep highest
+                        if key not in url_embeds:
+                            url_embeds[key] = {}
+                        if res_num not in url_embeds[key] or res_num > max(url_embeds[key].keys(), default=0):
+                            url_embeds[key][res_num] = line
+                    else:
+                        # No matching episode found, use standalone assignment
+                        standalone_embeds.append(line)
                 else:
                     standalone_embeds.append(line)
             else:
@@ -630,26 +674,22 @@ def parse_input(text: str) -> Dict[str, Episode]:
             episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
     
     # Add highest resolution URL-parsed embeds
-    for ep_num, res_dict in url_embeds.items():
-        if res_dict:
+    for key, res_dict in url_embeds.items():
+        if res_dict and key in episodes:
             highest_res = max(res_dict.keys())
             iframe_code = res_dict[highest_res]
-            if ep_num not in episodes:
-                src_match = re.search(r'src=["\']([^"\']+)["\']', iframe_code)
-                url_info = parse_url_path(src_match.group(1)) if src_match else None
-                episodes[ep_num] = Episode(number=ep_num, series_name=url_info['series_name'] if url_info else 'Unknown', year='', season='')
             hostname = get_embed_hostname(iframe_code)
-            episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
+            episodes[key].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
     
     # Assign standalone iframes positionally if we have series headers
     if series_header_list and standalone_embeds:
         num_episodes = len(series_header_list)
         for idx, iframe in enumerate(standalone_embeds):
             ep_idx = idx % num_episodes
-            ep_num = series_header_list[ep_idx]['episode']
-            if ep_num in episodes:
+            unique_key = series_header_list[ep_idx]['unique_key']
+            if unique_key in episodes:
                 hostname = get_embed_hostname(iframe)
-                episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe))
+                episodes[unique_key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
         standalone_embeds = []
 
     for line in embed_lines:
@@ -687,12 +727,19 @@ def parse_input(text: str) -> Dict[str, Episode]:
                 if url_info:
                     ep_num = url_info['episode']
                     res = url_info['resolution']
+                    series_name = url_info['series_name']
                     hosting = detect_hosting(line)
-                    if ep_num not in episodes:
-                        episodes[ep_num] = Episode(number=ep_num, series_name=url_info['series_name'], year='', season='')
-                    if res not in episodes[ep_num].downloads:
-                        episodes[ep_num].downloads[res] = []
-                    episodes[ep_num].downloads[res].append(DownloadLink(hosting=hosting, url=line, resolution=res))
+                    
+                    # Find matching episode using unique key
+                    key = find_episode_key(episodes, series_name, ep_num)
+                    if not key:
+                        # Create new episode if not found
+                        key = f"{series_name}_{ep_num}"
+                        episodes[key] = Episode(number=ep_num, series_name=series_name, year='', season='')
+                    
+                    if res not in episodes[key].downloads:
+                        episodes[key].downloads[res] = []
+                    episodes[key].downloads[res].append(DownloadLink(hosting=hosting, url=line, resolution=res))
                 else:
                     download_urls.append(line)
             
@@ -732,41 +779,59 @@ def parse_input(text: str) -> Dict[str, Episode]:
         # Parse Mirrored links for episode/resolution structure
         for url in download_urls:
             if 'mirrored' in url.lower():
-                # Require delimiter before E to avoid matching URL hashes
-                ep_match = re.search(r'[._\s]S(\d+)E(\d+)|[._\s]E(\d+)', url, re.IGNORECASE)
-                res = extract_resolution(url)
-                if ep_match:
-                    ep_num = ep_match.group(2) or ep_match.group(3)
-                    if ep_num not in episodes:
-                        episodes[ep_num] = Episode(number=ep_num, series_name="Unknown", year="", season="")
-                    if ep_num not in episode_resolutions:
-                        episode_resolutions[ep_num] = []
-                    if res not in episode_resolutions[ep_num]:
-                        episode_resolutions[ep_num].append(res)
-                    if res not in episodes[ep_num].downloads:
-                        episodes[ep_num].downloads[res] = []
-                    episodes[ep_num].downloads[res].append(DownloadLink(hosting='Mirrored', url=url, resolution=res))
+                # Extract series name and episode from URL like [LayarAsia]_Series.Name.E01.720p.mp4_links
+                series_match = re.search(r'\[.*?\]_(.+?)[._]E(\d+)', url)
+                if series_match:
+                    series_from_url = series_match.group(1).replace('.', ' ').replace('_', ' ')
+                    ep_num = series_match.group(2)
+                    res = extract_resolution(url)
+                    
+                    # Find matching episode using unique key
+                    key = find_episode_key(episodes, series_from_url, ep_num)
+                    if not key:
+                        key = f"{series_from_url}_{ep_num}"
+                        episodes[key] = Episode(number=ep_num, series_name=series_from_url, year='', season='')
+                    
+                    if key not in episode_resolutions:
+                        episode_resolutions[key] = []
+                    if res not in episode_resolutions[key]:
+                        episode_resolutions[key].append(res)
+                    if res not in episodes[key].downloads:
+                        episodes[key].downloads[res] = []
+                    episodes[key].downloads[res].append(DownloadLink(hosting='Mirrored', url=url, resolution=res))
         
-        current_episode, current_res_index, current_hosting = None, 0, None
+        # Second pass: assign non-Mirrored links to resolutions in order, using unique key
+        current_key = None
+        current_res_index = 0
+        current_hosting = None
         
         for url in download_urls:
             if 'mirrored' in url.lower():
-                ep_match = re.search(r'E(\d+)', url)
-                if ep_match:
-                    new_ep = ep_match.group(1)
-                    if new_ep != current_episode:
-                        current_episode, current_res_index, current_hosting = new_ep, 0, 'Mirrored'
+                # This is a mirrored link - update current episode key
+                series_match = re.search(r'\[.*?\]_(.+?)[._]E(\d+)', url)
+                if series_match:
+                    series_from_url = series_match.group(1).replace('.', ' ').replace('_', ' ')
+                    ep_num = series_match.group(2)
+                    new_key = find_episode_key(episodes, series_from_url, ep_num)
+                    
+                    if new_key != current_key:
+                        current_key = new_key
+                        current_res_index = 0
+                        current_hosting = 'Mirrored'
                     else:
                         current_res_index += 1
-            elif current_episode and current_episode in episode_resolutions:
-                resolutions = episode_resolutions[current_episode]
-                hosting = detect_hosting(url)
-                if hosting != current_hosting:
-                    current_hosting, current_res_index = hosting, 0
-                if current_res_index < len(resolutions):
-                    res = resolutions[current_res_index]
-                    episodes[current_episode].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
-                    current_res_index += 1
+            else:
+                # Non-mirrored link - assign to current episode/resolution
+                if current_key and current_key in episode_resolutions:
+                    resolutions = episode_resolutions[current_key]
+                    hosting = detect_hosting(url)
+                    if hosting != current_hosting:
+                        current_hosting = hosting
+                        current_res_index = 0
+                    if current_res_index < len(resolutions):
+                        res = resolutions[current_res_index]
+                        episodes[current_key].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
+                        current_res_index += 1
         
         for url in download_urls:
             if 'mirrored' in url.lower():
@@ -975,10 +1040,15 @@ with col1:
                 # Sort keys appropriately
                 if is_movie:
                     sorted_items = sorted(episodes.items())
-                    scripts = {key: {'js': generate_quickfill_js(ep), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'is_movie': True} for key, ep in sorted_items}
+                    scripts = {key: {'js': generate_quickfill_js(ep), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'episode': ep.number, 'is_movie': True} for key, ep in sorted_items}
                 else:
-                    sorted_items = sorted(episodes.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)
-                    scripts = {ep_num: {'js': generate_quickfill_js(ep), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'is_movie': False} for ep_num, ep in sorted_items}
+                    # Sort by series name first, then by episode number
+                    def sort_key(item):
+                        ep = item[1]
+                        ep_num = int(ep.number) if ep.number.isdigit() else 0
+                        return (ep.series_name, ep_num)
+                    sorted_items = sorted(episodes.items(), key=sort_key)
+                    scripts = {key: {'js': generate_quickfill_js(ep), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'episode': ep.number, 'is_movie': False} for key, ep in sorted_items}
                 st.session_state.generated_scripts = scripts
                 item_type = "movie" if is_movie else "episode"
                 st.success(f"Generated {len(scripts)} {item_type} scripts")
@@ -1001,9 +1071,10 @@ with col2:
             selected = st.selectbox("Movie", episode_options)
             key = selected
         else:
-            episode_options = [f"{scripts[ep]['series']} E{ep}" for ep in scripts.keys()]
-            selected = st.selectbox("Episode", episode_options)
-            key = selected.split(" E")[-1] if selected else None
+            episode_options = [f"{scripts[key]['series']} E{scripts[key]['episode']}" for key in scripts.keys()]
+            key_list = list(scripts.keys())
+            selected_idx = st.selectbox("Episode", range(len(episode_options)), format_func=lambda i: episode_options[i])
+            key = key_list[selected_idx] if selected_idx is not None else None
         
         if key and key in scripts:
             d = scripts[key]
@@ -1035,7 +1106,13 @@ with col2:
                         safe_title = re.sub(r'[^\w\s-]', '', n).strip().replace(' ', '_')
                         zf.writestr(f"quickfill_{safe_title}.js", data['js'])
                     else:
-                        zf.writestr(f"quickfill_E{n}.js", data['js'])
+                        # Create abbreviated series name (first letters of each word, max 10 chars)
+                        words = data['series'].split()
+                        if len(words) > 1:
+                            abbrev = ''.join(w[0].upper() for w in words if w)[:10]
+                        else:
+                            abbrev = data['series'][:10].replace(' ', '')
+                        zf.writestr(f"quickfill_{abbrev}_E{data['episode']}.js", data['js'])
             st.download_button("Download All (ZIP)", zip_buf.getvalue(), "quickfill.zip", "application/zip", use_container_width=True)
     else:
         st.info("Generate scripts to see output")

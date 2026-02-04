@@ -1022,7 +1022,7 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
     return episodes
 
 
-def generate_quickfill_js(episode: Episode, subbed: str = "Sub") -> str:
+def generate_quickfill_js(episode: Episode, subbed: str = "Sub", fill_mode: str = "replace") -> str:
     embeds_js = ',\n'.join([f"""        {{ hostname: "{e.hostname}", embed: '{e.embed.replace("'", "\\'")}' }}""" for e in episode.embeds])
     
     resolutions_js = []
@@ -1052,6 +1052,7 @@ const EPISODE_DATA = {{
     seasonNumber: "{episode.season}",
     episodeNumber: "{episode.number}",
     subbed: "{subbed}",
+    fillMode: "{fill_mode}",
     embeds: [
 {embeds_js}
     ],
@@ -1066,8 +1067,10 @@ const EPISODE_DATA = {{
 (async function() {{
     'use strict';
     const DELAY = 150;
+    const CLONE_SELECTOR = ':scope > .rwmb-clone:not(.rwmb-clone-template)';
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const trigger = el => {{ el.dispatchEvent(new Event('change', {{bubbles:true}})); el.dispatchEvent(new Event('input', {{bubbles:true}})); }};
+    const getClones = container => Array.from(container.querySelectorAll(CLONE_SELECTOR));
     
     const setField = (id, val) => {{ const el = document.getElementById(id); if(el) {{ el.value = val; trigger(el); }} }};
     
@@ -1100,10 +1103,20 @@ const EPISODE_DATA = {{
     const setEmbeds = async embeds => {{
         const container = document.querySelector('#embed-video .rwmb-tab-panel-input-version .rwmb-input');
         if (!container) return;
+        let clones = getClones(container);
+        let baseIndex = 0;
+        if (isAppendMode) {{
+            const hasExistingData = clones.some(clone => {{
+                const h = clone.querySelector('input[name*="ab_hostname"]');
+                const e = clone.querySelector('textarea[name*="ab_embed"]');
+                return (h && h.value.trim()) || (e && e.value.trim());
+            }});
+            baseIndex = hasExistingData ? clones.length : 0;
+        }}
         for (let i = 0; i < embeds.length; i++) {{
-            let clones = container.querySelectorAll(':scope > .rwmb-clone:not(.rwmb-clone-template)');
-            while (clones.length <= i) {{ await addClone(container); clones = container.querySelectorAll(':scope > .rwmb-clone:not(.rwmb-clone-template)'); }}
-            const clone = clones[i];
+            const targetIdx = baseIndex + i;
+            while (clones.length <= targetIdx) {{ await addClone(container); clones = getClones(container); }}
+            const clone = clones[targetIdx];
             const h = clone.querySelector('input[name*="ab_hostname"]');
             const e = clone.querySelector('textarea[name*="ab_embed"]');
             if (h) {{ h.value = embeds[i].hostname; trigger(h); }}
@@ -1117,23 +1130,43 @@ const EPISODE_DATA = {{
         const epClone = epContainer.querySelector(':scope > .rwmb-clone:not(.rwmb-clone-template)');
         if (!epClone) return;
         const epTitle = epClone.querySelector('input[name*="ab_eptitle_ep"]');
-        if (epTitle) {{ epTitle.value = downloads.episodeTitle; trigger(epTitle); }}
+        if (epTitle && (!isAppendMode || !epTitle.value.trim())) {{ epTitle.value = downloads.episodeTitle; trigger(epTitle); }}
         const resContainer = epClone.querySelector('.rwmb-group-collapsible > .rwmb-input');
         if (!resContainer) return;
+        let resClones = getClones(resContainer);
+        let baseResIndex = 0;
+        if (isAppendMode) {{
+            const hasExistingResData = resClones.some(clone => {{
+                const p = clone.querySelector('select[name*="ab_pixel_ep"]');
+                const u = clone.querySelector('input[name*="ab_linkurl_ep"]');
+                return (p && p.value) || (u && u.value.trim());
+            }});
+            baseResIndex = hasExistingResData ? resClones.length : 0;
+        }}
         for (let r = 0; r < downloads.resolutions.length; r++) {{
             const resData = downloads.resolutions[r];
-            let resClones = resContainer.querySelectorAll(':scope > .rwmb-clone:not(.rwmb-clone-template)');
-            while (resClones.length <= r) {{ await addClone(resContainer); resClones = resContainer.querySelectorAll(':scope > .rwmb-clone:not(.rwmb-clone-template)'); }}
-            const resClone = resClones[r];
+            const targetResIdx = baseResIndex + r;
+            while (resClones.length <= targetResIdx) {{ await addClone(resContainer); resClones = getClones(resContainer); }}
+            const resClone = resClones[targetResIdx];
             const pixel = resClone.querySelector('select[name*="ab_pixel_ep"]');
             if (pixel) {{ pixel.value = resData.pixel; trigger(pixel); }}
             const linkContainer = resClone.querySelector('.rwmb-group-wrapper:not(.rwmb-group-collapsible) > .rwmb-input');
             if (!linkContainer) continue;
+            let linkClones = getClones(linkContainer);
+            let baseLinkIndex = 0;
+            if (isAppendMode) {{
+                const hasExistingLinkData = linkClones.some(clone => {{
+                    const h = clone.querySelector('select[name*="ab_hostingname_ep"]');
+                    const u = clone.querySelector('input[name*="ab_linkurl_ep"]');
+                    return (h && h.value) || (u && u.value.trim());
+                }});
+                baseLinkIndex = hasExistingLinkData ? linkClones.length : 0;
+            }}
             for (let l = 0; l < resData.links.length; l++) {{
                 const linkData = resData.links[l];
-                let linkClones = linkContainer.querySelectorAll(':scope > .rwmb-clone:not(.rwmb-clone-template)');
-                while (linkClones.length <= l) {{ await addClone(linkContainer); linkClones = linkContainer.querySelectorAll(':scope > .rwmb-clone:not(.rwmb-clone-template)'); }}
-                const linkClone = linkClones[l];
+                const targetLinkIdx = baseLinkIndex + l;
+                while (linkClones.length <= targetLinkIdx) {{ await addClone(linkContainer); linkClones = getClones(linkContainer); }}
+                const linkClone = linkClones[targetLinkIdx];
                 const hosting = linkClone.querySelector('select[name*="ab_hostingname_ep"]');
                 if (hosting) {{ hosting.value = linkData.hosting; trigger(hosting); }}
                 const url = linkClone.querySelector('input[name*="ab_linkurl_ep"]');
@@ -1144,6 +1177,7 @@ const EPISODE_DATA = {{
     
     console.log('Starting auto-fill...');
     const d = EPISODE_DATA;
+    const isAppendMode = (d.fillMode || 'replace').toLowerCase() === 'append';
     const seasonNum = (d.seasonNumber && d.seasonNumber !== 'None') ? d.seasonNumber.replace(/^0+/, '') || d.seasonNumber : '';
     const epNum = d.episodeNumber.replace(/^0+/, '') || d.episodeNumber;
     const seasonPart = seasonNum ? ` Season ${{seasonNum}}` : '';
@@ -1189,6 +1223,12 @@ with col1:
     st.markdown("### Input")
     series_name = st.text_input("Series Name (optional)", placeholder="Auto-detect from URL")
     input_text = st.text_area("Episode Data", height=250, placeholder="<iframe src=...></iframe>\nid | <iframe ...></iframe>\n[url=URL][filename][/url]\n\nDownload Link\n\nhttps://mirrored.to/...")
+    fill_mode_label = st.selectbox(
+        "Fill Mode",
+        options=["Append (keep existing data)", "Replace (overwrite from top)"],
+        index=0,
+    )
+    fill_mode = "append" if fill_mode_label.startswith("Append") else "replace"
     
     # ouo.io Shortening Settings
     with st.expander("🔗 ouo.io Shortening", expanded=False):
@@ -1226,7 +1266,7 @@ with col1:
                 # Sort keys appropriately
                 if is_movie:
                     sorted_items = sorted(episodes.items())
-                    scripts = {key: {'js': generate_quickfill_js(ep), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'episode': ep.number, 'is_movie': True} for key, ep in sorted_items}
+                    scripts = {key: {'js': generate_quickfill_js(ep, fill_mode=fill_mode), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'episode': ep.number, 'is_movie': True} for key, ep in sorted_items}
                 else:
                     # Sort by series name first, then by episode number
                     def sort_key(item):
@@ -1234,7 +1274,7 @@ with col1:
                         ep_num = int(ep.number) if ep.number.isdigit() else 0
                         return (ep.series_name, ep_num)
                     sorted_items = sorted(episodes.items(), key=sort_key)
-                    scripts = {key: {'js': generate_quickfill_js(ep), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'episode': ep.number, 'is_movie': False} for key, ep in sorted_items}
+                    scripts = {key: {'js': generate_quickfill_js(ep, fill_mode=fill_mode), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'episode': ep.number, 'is_movie': False} for key, ep in sorted_items}
                 st.session_state.generated_scripts = scripts
                 item_type = "movie" if is_movie else "episode"
                 st.success(f"Generated {len(scripts)} {item_type} scripts")

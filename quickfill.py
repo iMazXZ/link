@@ -671,6 +671,7 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
     lines = text.strip().split('\n')
     
     download_section_start = -1
+    force_download_only = False
     for i, line in enumerate(lines):
         if line.strip().lower() == 'download link':
             download_section_start = i
@@ -682,7 +683,24 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
                 download_section_start = i
                 break
     
-    embed_lines = lines[:download_section_start] if download_section_start > 0 else lines
+    # Heuristic: if there is no iframe and most BBCode URLs look like download hosts,
+    # treat the whole input as download section even without "Download Link" marker.
+    if download_section_start == -1:
+        non_empty = [ln.strip() for ln in lines if ln.strip()]
+        has_iframe = any('<iframe' in ln.lower() for ln in non_empty)
+        bbcode_lines = [ln for ln in non_empty if ln.startswith('[url=')]
+        if not has_iframe and bbcode_lines:
+            recognized_download = 0
+            for ln in bbcode_lines:
+                bb = parse_bbcode(ln)
+                if bb:
+                    host = detect_hosting(bb['url'])
+                    if host != 'Other':
+                        recognized_download += 1
+            if recognized_download / max(len(bbcode_lines), 1) >= 0.6:
+                force_download_only = True
+
+    embed_lines = [] if force_download_only else (lines[:download_section_start] if download_section_start > 0 else lines)
     embed_server_count = {}
     standalone_embeds = []
     veev_embeds = {}  # ep_num -> {resolution_num: iframe_code}
@@ -860,8 +878,8 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
                 hostname = get_embed_hostname(embed_code)
                 episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=embed_code))
     
-    if download_section_start > 0:
-        download_lines = lines[download_section_start + 1:]
+    if force_download_only or download_section_start > 0:
+        download_lines = lines if force_download_only else lines[download_section_start + 1:]
         download_urls = []
         episode_resolutions = {}
         

@@ -671,10 +671,12 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
     lines = text.strip().split('\n')
     
     download_section_start = -1
+    has_explicit_download_marker = False
     force_download_only = False
     for i, line in enumerate(lines):
         if line.strip().lower() == 'download link':
             download_section_start = i
+            has_explicit_download_marker = True
             break
     
     if download_section_start == -1:
@@ -685,7 +687,7 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
     
     # Heuristic: if there is no iframe and most BBCode URLs look like download hosts,
     # treat the whole input as download section even without "Download Link" marker.
-    if download_section_start == -1:
+    if not has_explicit_download_marker:
         non_empty = [ln.strip() for ln in lines if ln.strip()]
         has_iframe = any('<iframe' in ln.lower() for ln in non_empty)
         bbcode_lines = [ln for ln in non_empty if ln.startswith('[url=')]
@@ -737,10 +739,11 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
                             season=info.get('season', '')
                         )
                     
-                    # Convert BBCode URL to iframe and add as embed
                     hostname = detect_embed_host_from_url(bbcode['url'])
-                    iframe = f'<iframe src="{bbcode["url"]}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
-                    episodes[unique_key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
+                    # Only treat BBCode as embed if host is an embed provider.
+                    if hostname != 'Other':
+                        iframe = f'<iframe src="{bbcode["url"]}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
+                        episodes[unique_key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
                 continue
         
         # Regular filename header (no URL)
@@ -876,7 +879,8 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
                 else:
                     embed_code = f'<iframe src="{url_or_iframe}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                 hostname = get_embed_hostname(embed_code)
-                episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=embed_code))
+                if hostname != 'Other':
+                    episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=embed_code))
     
     if force_download_only or download_section_start > 0:
         download_lines = lines if force_download_only else lines[download_section_start + 1:]

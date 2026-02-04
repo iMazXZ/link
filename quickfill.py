@@ -577,21 +577,34 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
                 movies[key].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
         
         # Parse Terabox links positionally (no filename info in URL)
+        # New behavior: follow per-movie resolution order already detected from other hosts.
         terabox_links = [line.strip() for line in download_lines if 'terabox' in line.lower() and line.strip().startswith('http')]
         if terabox_links and movie_list:
-            resolutions = ['720p', '1080p']
-            num_movies = len(movie_list)
-            for idx, url in enumerate(terabox_links):
-                movie_idx = idx // 2
-                res_idx = idx % 2
-                if movie_idx < num_movies:
-                    movie_info = movie_list[movie_idx]
-                    key = normalize_movie_title(movie_info['title'])
-                    res = resolutions[res_idx]
-                    if key in movies:
-                        if res not in movies[key].downloads:
-                            movies[key].downloads[res] = []
-                        movies[key].downloads[res].append(DownloadLink(hosting='Terabox', url=url, resolution=res))
+            terabox_idx = 0
+            for movie_entry in movie_list:
+                key = movie_entry['key']
+                if key not in movies:
+                    continue
+                
+                # Use known resolutions for this movie (e.g. 480p, 720p, 1080p)
+                known_resolutions = sorted(
+                    movies[key].downloads.keys(),
+                    key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else 9999
+                )
+                if not known_resolutions:
+                    known_resolutions = ['480p', '720p', '1080p']
+                
+                for res in known_resolutions:
+                    if terabox_idx >= len(terabox_links):
+                        break
+                    url = terabox_links[terabox_idx]
+                    terabox_idx += 1
+                    if res not in movies[key].downloads:
+                        movies[key].downloads[res] = []
+                    movies[key].downloads[res].append(DownloadLink(hosting='Terabox', url=url, resolution=res))
+                
+                if terabox_idx >= len(terabox_links):
+                    break
     
     return movies
 

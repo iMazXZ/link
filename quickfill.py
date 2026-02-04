@@ -49,8 +49,23 @@ def inject_custom_css():
         background-color: #09090b;
     }
     
-    * {
+    *:not(.material-icons):not(.material-symbols-outlined):not(.material-symbols-rounded):not(.material-symbols-sharp) {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+
+    /* Keep icon ligatures rendered as icons (avoid showing raw text like "arrow_downward") */
+    .material-icons,
+    .material-symbols-outlined,
+    .material-symbols-rounded,
+    .material-symbols-sharp {
+        font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
+        font-weight: normal !important;
+        font-style: normal !important;
+        letter-spacing: normal !important;
+        text-transform: none !important;
+        white-space: nowrap !important;
+        font-feature-settings: 'liga' !important;
+        -webkit-font-feature-settings: 'liga' !important;
     }
     
     /* Hide defaults */

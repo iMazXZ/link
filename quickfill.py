@@ -545,6 +545,8 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
     # Phase 5: Parse downloads
     if download_section_start > 0:
         download_lines = lines[download_section_start + 1:]
+        # Plain URLs without filename metadata (e.g. Terabox/Upfiles) to map positionally later.
+        unassigned_links_by_host: Dict[str, List[str]] = {}
         for line in download_lines:
             line = line.strip()
             if not line:
@@ -566,6 +568,12 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
                 movie_info = parse_movie_from_url(line)
                 if movie_info:
                     url, hosting = line, detect_hosting(line)
+                else:
+                    # Fallback: plain URL tanpa metadata movie ikut mapping positional
+                    # per-host selama host bisa dideteksi (bukan "Other").
+                    hosting = detect_hosting(line)
+                    if hosting != 'Other':
+                        unassigned_links_by_host.setdefault(hosting, []).append(line)
             
             if movie_info and url and hosting:
                 key = normalize_movie_title(movie_info['title'])
@@ -576,34 +584,36 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
                     movies[key].downloads[res] = []
                 movies[key].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))
         
-        # Parse Terabox links positionally (no filename info in URL)
-        # New behavior: follow per-movie resolution order already detected from other hosts.
-        terabox_links = [line.strip() for line in download_lines if 'terabox' in line.lower() and line.strip().startswith('http')]
-        if terabox_links and movie_list:
-            terabox_idx = 0
+        # Map plain host URLs positionally (Terabox/Upfiles):
+        # each movie consumes links in its known resolution order (480p, 720p, 1080p, ...).
+        for host_name, host_links in unassigned_links_by_host.items():
+            host_idx = 0
+            if not movie_list:
+                continue
             for movie_entry in movie_list:
                 key = movie_entry['key']
                 if key not in movies:
                     continue
-                
-                # Use known resolutions for this movie (e.g. 480p, 720p, 1080p)
                 known_resolutions = sorted(
                     movies[key].downloads.keys(),
                     key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else 9999
                 )
                 if not known_resolutions:
                     known_resolutions = ['480p', '720p', '1080p']
-                
                 for res in known_resolutions:
-                    if terabox_idx >= len(terabox_links):
+                    if host_idx >= len(host_links):
                         break
-                    url = terabox_links[terabox_idx]
-                    terabox_idx += 1
+                    url = host_links[host_idx]
+                    host_idx += 1
                     if res not in movies[key].downloads:
                         movies[key].downloads[res] = []
-                    movies[key].downloads[res].append(DownloadLink(hosting='Terabox', url=url, resolution=res))
-                
-                if terabox_idx >= len(terabox_links):
+                    # Avoid accidental duplicate insertion.
+                    exists = any(l.hosting == host_name and l.url == url for l in movies[key].downloads[res])
+                    if not exists:
+                        movies[key].downloads[res].append(
+                            DownloadLink(hosting=host_name, url=url, resolution=res)
+                        )
+                if host_idx >= len(host_links):
                     break
     
     return movies

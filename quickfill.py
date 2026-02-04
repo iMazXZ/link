@@ -463,8 +463,10 @@ def detect_embed_host_from_url(url: str) -> str:
     return 'Other'
 
 
-def parse_movie_input(text: str) -> Dict[str, Episode]:
+def parse_movie_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") -> Dict[str, Episode]:
     """Parse movie input format and return movies as episodes (keyed by normalized title)"""
+    if shorten_hosts is None:
+        shorten_hosts = set()
     movies: Dict[str, Episode] = {}
     lines = text.strip().split('\n')
     
@@ -591,6 +593,8 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
                         unassigned_links_by_host.setdefault(hosting, []).append(line)
             
             if movie_info and url and hosting:
+                if hosting in shorten_hosts and api_key:
+                    url = shorten_with_ouo_cached(api_key, url)
                 key = normalize_movie_title(movie_info['title'])
                 res = movie_info['resolution']
                 if key not in movies:
@@ -620,6 +624,8 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
                         break
                     url = host_links[host_idx]
                     host_idx += 1
+                    if host_name in shorten_hosts and api_key:
+                        url = shorten_with_ouo_cached(api_key, url)
                     if res not in movies[key].downloads:
                         movies[key].downloads[res] = []
                     # Avoid accidental duplicate insertion.
@@ -1209,7 +1215,7 @@ with col1:
             # Detect if movie or series format
             is_movie = is_movie_format(input_text)
             if is_movie:
-                episodes = parse_movie_input(input_text)
+                episodes = parse_movie_input(input_text, shorten_set, ouo_api_key if ouo_enabled else "")
             else:
                 episodes = parse_input(input_text, shorten_set, ouo_api_key if ouo_enabled else "")
             

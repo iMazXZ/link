@@ -318,6 +318,7 @@ def parse_movie_filename(filename: str) -> Optional[Dict]:
     match = re.search(pattern1, filename, re.IGNORECASE)
     if match:
         title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
+        title = re.sub(r'^\[[^\]]+\]\s*', '', title).strip()
         return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
     
     # Pattern 2: [tag] Title Year.Resolution.ext (spaces in title)
@@ -325,6 +326,7 @@ def parse_movie_filename(filename: str) -> Optional[Dict]:
     match = re.search(pattern2, filename, re.IGNORECASE)
     if match:
         title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
+        title = re.sub(r'^\[[^\]]+\]\s*', '', title).strip()
         return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
     
     # Pattern 3: [tag]_Title_Year.Resolution.ext (underscores)
@@ -332,6 +334,7 @@ def parse_movie_filename(filename: str) -> Optional[Dict]:
     match = re.search(pattern3, filename, re.IGNORECASE)
     if match:
         title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
+        title = re.sub(r'^\[[^\]]+\]\s*', '', title).strip()
         return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
     
     return None
@@ -353,6 +356,9 @@ def parse_movie_from_url(url: str) -> Optional[Dict]:
 
 
 def normalize_movie_title(title: str) -> str:
+    title = re.sub(r'^\s*\[[^\]]+\]\s*', '', title).strip()
+    title = title.replace('+', ' ')
+    title = re.sub(r'\s+', ' ', title)
     return title.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ').strip()
 
 
@@ -455,21 +461,42 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
     
     embed_lines = lines[:download_section_start] if download_section_start > 0 else lines
     
-    # Phase 1: Collect movie headers
+    # Phase 1: Collect movie headers (supports plain filename and BBCode embeds)
     movie_list = []
+    seen_movie_keys = set()
     for line in embed_lines:
         line = line.strip()
         if not line:
             continue
         if line.startswith('<iframe'):
             break
-        if line.startswith('['):
+        
+        movie_info = None
+        bbcode = None
+        
+        # New format: [url=LINK][LayarAsia] Title.Year.Res.mp4[/url]
+        if line.startswith('[url='):
+            bbcode = parse_bbcode(line)
+            if bbcode:
+                movie_info = parse_movie_filename(bbcode['filename'])
+        elif line.startswith('['):
             movie_info = parse_movie_filename(line)
-            if movie_info:
-                movie_list.append(movie_info)
-                key = normalize_movie_title(movie_info['title'])
-                if key not in movies:
-                    movies[key] = Episode(number='HD', series_name=movie_info['title'], year=movie_info['year'], season=None)
+        
+        if movie_info:
+            key = normalize_movie_title(movie_info['title'])
+            if key not in movies:
+                movies[key] = Episode(number='HD', series_name=movie_info['title'], year=movie_info['year'], season=None)
+            
+            # Keep stable movie ordering without duplicates
+            if key not in seen_movie_keys:
+                seen_movie_keys.add(key)
+                movie_list.append({'key': key, 'title': movie_info['title']})
+            
+            # If this is BBCode embed, convert URL to iframe immediately
+            if bbcode:
+                hostname = detect_embed_host_from_url(bbcode['url'])
+                iframe = f'<iframe src="{bbcode["url"]}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
+                movies[key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
     
     # Phase 2: Collect standalone iframes and bysetayico embeds
     standalone_iframes = []
@@ -496,11 +523,9 @@ def parse_movie_input(text: str) -> Dict[str, Episode]:
     # Phase 3: Assign standalone iframes positionally
     if movie_list and standalone_iframes:
         num_movies = len(movie_list)
-        server_count = {normalize_movie_title(m['title']): 0 for m in movie_list}
         for idx, iframe in enumerate(standalone_iframes):
             movie_idx = idx % num_movies
-            movie_info = movie_list[movie_idx]
-            key = normalize_movie_title(movie_info['title'])
+            key = movie_list[movie_idx]['key']
             if key in movies:
                 hostname = get_embed_hostname(iframe)
                 movies[key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
@@ -783,7 +808,6 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
                 ep_num = info['episode']
                 if ep_num not in episodes:
                     episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
-                hostname = get_embed_hostname(iframe_code)
                 # Check if it's already an iframe or just a URL
                 if url_or_iframe.startswith('<iframe'):
                     embed_code = url_or_iframe

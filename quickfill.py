@@ -268,6 +268,9 @@ class Episode:
 EMBED_HOST_CONFIG = [
     {'pattern': 'nuna.upns.pro', 'name': 'Upnshare'},
     {'pattern': 'short.icu', 'name': 'HydraX'},
+    {'pattern': 'ok.ru', 'name': 'OKru'},
+    {'pattern': 'turbovidhls.com', 'name': 'TurboVid'},
+    {'pattern': 'emturbovid.com', 'name': 'TurboVid'},
     {'pattern': 'hqq.to', 'name': 'LuluTV'},
     {'pattern': 'nuna.p2pstream.vip', 'name': 'StreamP2P'},
     {'pattern': 'veev.to', 'name': 'Veev'},
@@ -450,6 +453,9 @@ def detect_embed_host_from_url(url: str) -> str:
     url_lower = url.lower()
     hosts = {
         'short.icu': 'HydraX',
+        'ok.ru': 'OKru',
+        'turbovidhls.com': 'TurboVid',
+        'emturbovid.com': 'TurboVid',
         'waaw.to': 'Waaw',
         'p2pstream': 'StreamP2P',
         'upns.pro': 'Upnshare',
@@ -461,6 +467,20 @@ def detect_embed_host_from_url(url: str) -> str:
         if key in url_lower:
             return name
     return 'Other'
+
+
+def to_embed_src(url: str) -> str:
+    """Normalize URL to embeddable src for known providers."""
+    url = url.strip()
+    # OK.ru watch URL -> videoembed URL
+    ok_match = re.search(r'ok\.ru/video/(\d+)', url, re.IGNORECASE)
+    if ok_match:
+        return f"https://ok.ru/videoembed/{ok_match.group(1)}?nochat=1"
+    # emturbovid /d/<id> -> turbovidhls /t/<id>
+    turbo_match = re.search(r'emturbovid\.com/d/([A-Za-z0-9]+)', url, re.IGNORECASE)
+    if turbo_match:
+        return f"https://turbovidhls.com/t/{turbo_match.group(1)}"
+    return url
 
 
 def parse_movie_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") -> Dict[str, Episode]:
@@ -512,7 +532,8 @@ def parse_movie_input(text: str, shorten_hosts: Set[str] = None, api_key: str = 
             # If this is BBCode embed, convert URL to iframe immediately
             if bbcode:
                 hostname = detect_embed_host_from_url(bbcode['url'])
-                iframe = f'<iframe src="{bbcode["url"]}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
+                embed_src = to_embed_src(bbcode["url"])
+                iframe = f'<iframe src="{embed_src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                 movies[key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
     
     # Phase 2: Collect standalone iframes and bysetayico embeds
@@ -742,7 +763,8 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
                     hostname = detect_embed_host_from_url(bbcode['url'])
                     # Only treat BBCode as embed if host is an embed provider.
                     if hostname != 'Other':
-                        iframe = f'<iframe src="{bbcode["url"]}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
+                        embed_src = to_embed_src(bbcode["url"])
+                        iframe = f'<iframe src="{embed_src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                         episodes[unique_key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
                 continue
         
@@ -877,7 +899,8 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
                 if url_or_iframe.startswith('<iframe'):
                     embed_code = url_or_iframe
                 else:
-                    embed_code = f'<iframe src="{url_or_iframe}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
+                    embed_src = to_embed_src(url_or_iframe)
+                    embed_code = f'<iframe src="{embed_src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                 hostname = get_embed_hostname(embed_code)
                 if hostname != 'Other':
                     episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=embed_code))

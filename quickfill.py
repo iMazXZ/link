@@ -1253,7 +1253,7 @@ const EPISODE_DATA = {{
     await sleep(DELAY);
     setCategory(d.seriesName);
     await sleep(DELAY);
-    setField('ero_episodebaru', d.episodeNumber);
+    setField('ero_episodebaru', epNum);
     await sleep(DELAY);
     setField('ero_subepisode', d.subbed);
     await sleep(DELAY);

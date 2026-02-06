@@ -1236,12 +1236,12 @@ const EPISODE_DATA = {{
     const seriesNorm = (d.seriesName || '').toLowerCase();
     const seasonToken = seasonNum;
     const seriesHasSeason = seasonToken ? (
-        seriesNorm.includes(`season ${seasonToken}`) ||
-        seriesNorm.includes(`season 0${seasonToken}`) ||
-        seriesNorm.includes(`season 00${seasonToken}`) ||
-        seriesNorm.includes(`s${seasonToken}`) ||
-        seriesNorm.includes(`s0${seasonToken}`) ||
-        seriesNorm.includes(`s00${seasonToken}`)
+        seriesNorm.includes(`season ${{seasonToken}}`) ||
+        seriesNorm.includes(`season 0${{seasonToken}}`) ||
+        seriesNorm.includes(`season 00${{seasonToken}}`) ||
+        seriesNorm.includes(`s${{seasonToken}}`) ||
+        seriesNorm.includes(`s0${{seasonToken}}`) ||
+        seriesNorm.includes(`s00${{seasonToken}}`)
     ) : false;
     const epNum = d.episodeNumber.replace(/^0+/, '') || d.episodeNumber;
     const seasonPart = (seasonToken && !seriesHasSeason) ? ` Season ${{seasonToken}}` : '';

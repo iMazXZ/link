@@ -1233,12 +1233,18 @@ const EPISODE_DATA = {{
     const d = EPISODE_DATA;
     const isAppendMode = (d.fillMode || 'replace').toLowerCase() === 'append';
     const seasonNum = (d.seasonNumber && d.seasonNumber !== 'None') ? d.seasonNumber.replace(/^0+/, '') || d.seasonNumber : '';
-    const seriesHasSeason = seasonNum ? (
-        new RegExp(`\\bseason\\s*0*${{seasonNum}}\\b`, 'i').test(d.seriesName) ||
-        new RegExp(`\\bs0*${{seasonNum}}\\b`, 'i').test(d.seriesName)
+    const seriesNorm = (d.seriesName || '').toLowerCase();
+    const seasonToken = seasonNum;
+    const seriesHasSeason = seasonToken ? (
+        seriesNorm.includes(`season ${seasonToken}`) ||
+        seriesNorm.includes(`season 0${seasonToken}`) ||
+        seriesNorm.includes(`season 00${seasonToken}`) ||
+        seriesNorm.includes(`s${seasonToken}`) ||
+        seriesNorm.includes(`s0${seasonToken}`) ||
+        seriesNorm.includes(`s00${seasonToken}`)
     ) : false;
     const epNum = d.episodeNumber.replace(/^0+/, '') || d.episodeNumber;
-    const seasonPart = (seasonNum && !seriesHasSeason) ? ` Season ${{seasonNum}}` : '';
+    const seasonPart = (seasonToken && !seriesHasSeason) ? ` Season ${{seasonToken}}` : '';
     // For movies (HD), don't add Episode part
     const episodePart = (epNum === 'HD') ? '' : ` Episode ${{epNum}}`;
     setField('title', `${{d.seriesName}}${{seasonPart}}${{episodePart}} Subtitle Indonesia`);

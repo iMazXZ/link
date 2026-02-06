@@ -431,9 +431,10 @@ def parse_url_path(url: str) -> Optional[Dict]:
 def detect_hosting(url: str) -> str:
     url_lower = url.lower()
     hosts = {'terabox': 'Terabox', 'mirrored': 'Mirrored', 'mir.cr': 'Mirrored', 'upfiles': 'Upfiles',
-             'buzzheavier': 'BuzzHeavier', 'gofile': 'Gofile', 'filemoon': 'FileMoon', 
+             'buzzheavier': 'BuzzHeavier', 'gofile': 'Gofile', 'filemoon': 'FileMoon',
              'vidhide': 'VidHide', 'krakenfiles': 'Krakenfiles', 'vikingfile': 'Vikingfile', 'veev.to': 'Veev',
-             'bysetayico': 'FileMoon', 'doodstream': 'Doodstream', 'streamtape': 'StreamTape'}
+             'bysetayico': 'FileMoon', 'doodstream': 'Doodstream', 'streamtape': 'StreamTape',
+             'jiouploads': 'Jioupload'}
     for key, name in hosts.items():
         if key in url_lower:
             return name
@@ -1076,10 +1077,18 @@ def generate_quickfill_js(episode: Episode, subbed: str = "Sub", fill_mode: str 
         resolutions_js.append(f'            {{ pixel: "{res}", links: [\n{links_js}\n                ] }}')
     resolutions_str = ',\n'.join(resolutions_js)
     
+    def series_has_season(name: str, season: str) -> bool:
+        if not season:
+            return False
+        season_norm = season.lstrip('0') or season
+        pattern1 = rf'\bseason\s*0*{re.escape(season_norm)}\b'
+        pattern2 = rf'\bs0*{re.escape(season_norm)}\b'
+        return bool(re.search(pattern1, name, re.IGNORECASE) or re.search(pattern2, name, re.IGNORECASE))
+
     # Build title with season if available (strip leading zeros for display)
     season_display = episode.season.lstrip('0') or episode.season if episode.season else ""
     ep_display = episode.number.lstrip('0') or episode.number
-    season_str = f" Season {season_display}" if season_display else ""
+    season_str = f" Season {season_display}" if season_display and not series_has_season(episode.series_name, episode.season) else ""
     
     # For movies (HD), omit Episode part from title
     if episode.number == 'HD':
@@ -1224,8 +1233,12 @@ const EPISODE_DATA = {{
     const d = EPISODE_DATA;
     const isAppendMode = (d.fillMode || 'replace').toLowerCase() === 'append';
     const seasonNum = (d.seasonNumber && d.seasonNumber !== 'None') ? d.seasonNumber.replace(/^0+/, '') || d.seasonNumber : '';
+    const seriesHasSeason = seasonNum ? (
+        new RegExp(`\\bseason\\s*0*${{seasonNum}}\\b`, 'i').test(d.seriesName) ||
+        new RegExp(`\\bs0*${{seasonNum}}\\b`, 'i').test(d.seriesName)
+    ) : false;
     const epNum = d.episodeNumber.replace(/^0+/, '') || d.episodeNumber;
-    const seasonPart = seasonNum ? ` Season ${{seasonNum}}` : '';
+    const seasonPart = (seasonNum && !seriesHasSeason) ? ` Season ${{seasonNum}}` : '';
     // For movies (HD), don't add Episode part
     const episodePart = (epNum === 'HD') ? '' : ` Episode ${{epNum}}`;
     setField('title', `${{d.seriesName}}${{seasonPart}}${{episodePart}} Subtitle Indonesia`);
@@ -1280,7 +1293,7 @@ with col1:
         ouo_enabled = st.checkbox("Enable Link Shortening", value=False, key="ouo_enabled")
         if ouo_enabled:
             ouo_api_key = st.text_input("API Key", value=DEFAULT_OUO_API_KEY, type="password", key="ouo_api_key")
-            available_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored']
+            available_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored', 'Jioupload']
             shorten_hosts = st.multiselect(
                 "Servers to shorten",
                 options=available_hosts,

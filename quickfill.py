@@ -434,7 +434,7 @@ def detect_hosting(url: str) -> str:
              'buzzheavier': 'BuzzHeavier', 'gofile': 'Gofile', 'filemoon': 'FileMoon',
              'vidhide': 'VidHide', 'krakenfiles': 'Krakenfiles', 'vikingfile': 'Vikingfile', 'veev.to': 'Veev',
              'bysetayico': 'FileMoon', 'doodstream': 'Doodstream', 'streamtape': 'StreamTape',
-             'jiouploads': 'Jioupload'}
+             'jiouploads': 'Jioupload', 'filekeeper': 'Filekeeper'}
     for key, name in hosts.items():
         if key in url_lower:
             return name
@@ -1299,7 +1299,7 @@ with col1:
         ouo_enabled = st.checkbox("Enable Link Shortening", value=False, key="ouo_enabled")
         if ouo_enabled:
             ouo_api_key = st.text_input("API Key", value=DEFAULT_OUO_API_KEY, type="password", key="ouo_api_key")
-            available_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored', 'Jioupload']
+            available_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored', 'Jioupload', 'Filekeeper']
             shorten_hosts = st.multiselect(
                 "Servers to shorten",
                 options=available_hosts,

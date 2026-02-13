@@ -988,6 +988,9 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
                     if res not in resolution_links[key]:
                         resolution_links[key][res] = []
                     resolution_links[key][res].append((hosting, url))
+                elif hosting == 'Mirrored':
+                    # Mirrored URLs carry episode metadata in filename; parse in legacy block below.
+                    download_urls.append(line)
                 elif current_key and current_resolution:
                     # Use current context from previous BBCode line
                     if current_key not in resolution_links:

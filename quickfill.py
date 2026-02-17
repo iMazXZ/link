@@ -380,6 +380,15 @@ def normalize_movie_title(title: str) -> str:
     return title.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ').strip()
 
 
+def format_movie_display_title(title: str, year: str) -> str:
+    """Return movie title for UI/JS, including year when available."""
+    clean_title = title.strip()
+    clean_year = (year or "").strip()
+    if clean_year and re.fullmatch(r'\d{4}', clean_year):
+        return f"{clean_title} ({clean_year})"
+    return clean_title
+
+
 def is_movie_format(text: str) -> bool:
     """Check if input is movie format (no Exx pattern in header lines)"""
     lines = text.strip().split('\n')
@@ -522,13 +531,14 @@ def parse_movie_input(text: str, shorten_hosts: Set[str] = None, api_key: str = 
         
         if movie_info:
             key = normalize_movie_title(movie_info['title'])
+            display_title = format_movie_display_title(movie_info['title'], movie_info.get('year', ''))
             if key not in movies:
-                movies[key] = Episode(number='HD', series_name=movie_info['title'], year=movie_info['year'], season=None)
+                movies[key] = Episode(number='HD', series_name=display_title, year=movie_info['year'], season=None)
             
             # Keep stable movie ordering without duplicates
             if key not in seen_movie_keys:
                 seen_movie_keys.add(key)
-                movie_list.append({'key': key, 'title': movie_info['title']})
+                movie_list.append({'key': key, 'title': display_title})
             
             # If this is BBCode embed, convert URL to iframe immediately
             if bbcode:
@@ -618,9 +628,10 @@ def parse_movie_input(text: str, shorten_hosts: Set[str] = None, api_key: str = 
                 if hosting in shorten_hosts and api_key:
                     url = shorten_with_ouo_cached(api_key, url)
                 key = normalize_movie_title(movie_info['title'])
+                display_title = format_movie_display_title(movie_info['title'], movie_info.get('year', ''))
                 res = movie_info['resolution']
                 if key not in movies:
-                    movies[key] = Episode(number='HD', series_name=movie_info['title'], year=movie_info['year'], season=None)
+                    movies[key] = Episode(number='HD', series_name=display_title, year=movie_info['year'], season=None)
                 if res not in movies[key].downloads:
                     movies[key].downloads[res] = []
                 movies[key].downloads[res].append(DownloadLink(hosting=hosting, url=url, resolution=res))

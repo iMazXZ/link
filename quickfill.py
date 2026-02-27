@@ -9,6 +9,7 @@ import streamlit.components.v1 as components
 import re
 import requests
 import time
+import json
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Set
 import zipfile
@@ -28,6 +29,22 @@ def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
         return url
 
     provider = (provider or "").strip().lower()
+
+    def normalize_shortened(value: str) -> str:
+        """Normalize provider output; return empty string when not a URL."""
+        if not value:
+            return ""
+        value = value.strip().replace("\\/", "/")
+        if value.startswith('"') and value.endswith('"'):
+            try:
+                value = json.loads(value)
+            except Exception:
+                pass
+            value = str(value).strip().replace("\\/", "/")
+        if value.startswith("http://") or value.startswith("https://"):
+            return value
+        return ""
+
     try:
         if provider == "safelinkearn":
             response = requests.get(
@@ -37,8 +54,22 @@ def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
             )
             if response.status_code == 200:
                 time.sleep(0.3)  # Rate limiting
-                short = response.text.strip()
-                return short or url
+                body = response.text.strip()
+                short = normalize_shortened(body)
+                if short:
+                    return short
+                # Fallback if provider still returns JSON despite format=text
+                if body.startswith("{") and body.endswith("}"):
+                    try:
+                        data = response.json()
+                    except Exception:
+                        try:
+                            data = json.loads(body)
+                        except Exception:
+                            data = {}
+                    short = normalize_shortened(str(data.get("shortenedUrl", "")))
+                    if short:
+                        return short
             return url
 
         # Default: ouo.io
@@ -49,7 +80,7 @@ def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
         )
         if response.status_code == 200:
             time.sleep(0.3)  # Rate limiting
-            short = response.text.strip()
+            short = normalize_shortened(response.text.strip())
             return short or url
         return url
     except:

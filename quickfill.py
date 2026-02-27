@@ -15,22 +15,42 @@ import zipfile
 import io
 
 # =============================================================================
-# OUO.IO SHORTENING
+# LINK SHORTENING
 # =============================================================================
 
 DEFAULT_OUO_API_KEY = "8pHuHRq5"
+DEFAULT_SAFELINKEARN_API_TOKEN = "b7e08e60216a7e4af740e7cd46e348a7e6fcea17"
 
 @st.cache_data(show_spinner=False, ttl=3600)
-def shorten_with_ouo_cached(api_key: str, url: str) -> str:
-    """Shorten URL dengan ouo.io API (cached)"""
+def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
+    """Shorten URL using selected provider (cached)."""
     if not api_key:
         return url
+
+    provider = (provider or "").strip().lower()
     try:
-        api_url = f'https://ouo.io/api/{api_key}?s={url}'
-        response = requests.get(api_url, timeout=10)
+        if provider == "safelinkearn":
+            response = requests.get(
+                "https://www.safelinkearn.com/api",
+                params={"api": api_key, "url": url, "format": "text"},
+                timeout=10,
+            )
+            if response.status_code == 200:
+                time.sleep(0.3)  # Rate limiting
+                short = response.text.strip()
+                return short or url
+            return url
+
+        # Default: ouo.io
+        response = requests.get(
+            f"https://ouo.io/api/{api_key}",
+            params={"s": url},
+            timeout=10,
+        )
         if response.status_code == 200:
             time.sleep(0.3)  # Rate limiting
-            return response.text.strip()
+            short = response.text.strip()
+            return short or url
         return url
     except:
         return url
@@ -408,6 +428,33 @@ def is_movie_format(text: str) -> bool:
             return False
     return len(header_lines) > 0
 
+
+def detect_input_content_types(text: str) -> Dict[str, bool]:
+    """Detect whether input contains movie items, series items, or both."""
+    has_movie = False
+    has_series = False
+    for raw_line in text.strip().split('\n'):
+        line = raw_line.strip()
+        if not line or line.startswith('<iframe') or line.lower() == 'download link':
+            continue
+        candidate = None
+        if line.startswith('[url='):
+            bbcode = parse_bbcode(line)
+            if bbcode:
+                candidate = bbcode['filename']
+        elif line.startswith('['):
+            candidate = line
+        if not candidate:
+            continue
+        if parse_movie_filename(candidate):
+            has_movie = True
+        if parse_filename(candidate):
+            has_series = True
+        if has_movie and has_series:
+            break
+    return {'has_movie': has_movie, 'has_series': has_series}
+
+
 def parse_url_path(url: str) -> Optional[Dict]:
     """Parse episode info from URL path"""
     path_match = re.search(r'/([^/]+)(?:\.[^/]+)?$', url)
@@ -493,7 +540,12 @@ def to_embed_src(url: str) -> str:
     return url
 
 
-def parse_movie_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") -> Dict[str, Episode]:
+def parse_movie_input(
+    text: str,
+    shorten_hosts: Set[str] = None,
+    api_key: str = "",
+    shortener_provider: str = "ouo",
+) -> Dict[str, Episode]:
     """Parse movie input format and return movies as episodes (keyed by normalized title)"""
     if shorten_hosts is None:
         shorten_hosts = set()
@@ -626,7 +678,7 @@ def parse_movie_input(text: str, shorten_hosts: Set[str] = None, api_key: str = 
             
             if movie_info and url and hosting:
                 if hosting in shorten_hosts and api_key:
-                    url = shorten_with_ouo_cached(api_key, url)
+                    url = shorten_url_cached(shortener_provider, api_key, url)
                 key = normalize_movie_title(movie_info['title'])
                 display_title = format_movie_display_title(movie_info['title'], movie_info.get('year', ''))
                 res = movie_info['resolution']
@@ -658,7 +710,7 @@ def parse_movie_input(text: str, shorten_hosts: Set[str] = None, api_key: str = 
                     url = host_links[host_idx]
                     host_idx += 1
                     if host_name in shorten_hosts and api_key:
-                        url = shorten_with_ouo_cached(api_key, url)
+                        url = shorten_url_cached(shortener_provider, api_key, url)
                     if res not in movies[key].downloads:
                         movies[key].downloads[res] = []
                     # Avoid accidental duplicate insertion.
@@ -697,7 +749,12 @@ def find_episode_key(episodes: Dict[str, Episode], series_name: str, ep_num: str
     return None
 
 
-def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") -> Dict[str, Episode]:
+def parse_input(
+    text: str,
+    shorten_hosts: Set[str] = None,
+    api_key: str = "",
+    shortener_provider: str = "ouo",
+) -> Dict[str, Episode]:
     if shorten_hosts is None:
         shorten_hosts = set()
     episodes: Dict[str, Episode] = {}
@@ -946,7 +1003,7 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
                         
                         # Apply shortening if enabled
                         if hosting in shorten_hosts and api_key:
-                            url = shorten_with_ouo_cached(api_key, url)
+                            url = shorten_url_cached(shortener_provider, api_key, url)
                         
                         # Find or create episode with unique key
                         info = parse_filename(filename)
@@ -978,7 +1035,7 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
                 # Apply shortening if enabled
                 url = line
                 if hosting in shorten_hosts and api_key:
-                    url = shorten_with_ouo_cached(api_key, line)
+                    url = shorten_url_cached(shortener_provider, api_key, line)
                 
                 if url_info:
                     # URL has explicit resolution info
@@ -1040,30 +1097,51 @@ def parse_input(text: str, shorten_hosts: Set[str] = None, api_key: str = "") ->
         # Parse Mirrored links for episode/resolution structure (legacy support)
         for url in download_urls:
             if 'mirrored' in url.lower():
-                series_match = re.search(r'\[.*?\]_(.+?)[._]E(\d+)', url)
-                if series_match:
+                parsed_info = None
+                fn_match = re.search(r'/([^/]+\.mp4)', url, re.IGNORECASE)
+                if fn_match:
+                    parsed_info = parse_filename(fn_match.group(1))
+
+                if parsed_info:
+                    series_from_url = parsed_info['series_name']
+                    ep_num = parsed_info['episode']
+                    season = parsed_info.get('season', '')
+                else:
+                    # Fallback for uncommon mirrored naming.
+                    series_match = re.search(r'\[.*?\]_(.+?)(?:[._]S\d+)?[._]E(\d+)', url, re.IGNORECASE)
+                    if not series_match:
+                        continue
                     series_from_url = series_match.group(1).replace('.', ' ').replace('_', ' ')
                     ep_num = series_match.group(2)
-                    res = extract_resolution(url)
-                    
-                    key = find_episode_key(episodes, series_from_url, ep_num)
-                    if not key:
-                        key = f"{series_from_url}_{ep_num}"
-                        episodes[key] = Episode(number=ep_num, series_name=series_from_url, year='', season='')
-                    
-                    if key not in episode_resolutions:
-                        episode_resolutions[key] = []
-                    if res not in episode_resolutions[key]:
-                        episode_resolutions[key].append(res)
-                    if res not in episodes[key].downloads:
-                        episodes[key].downloads[res] = []
-                    episodes[key].downloads[res].append(DownloadLink(hosting='Mirrored', url=url, resolution=res))
+                    season = ''
+
+                res = extract_resolution(url)
+                key = find_episode_key(episodes, series_from_url, ep_num)
+                if not key:
+                    key = f"{series_from_url}_{ep_num}"
+                    episodes[key] = Episode(number=ep_num, series_name=series_from_url, year='', season=season)
+
+                if key not in episode_resolutions:
+                    episode_resolutions[key] = []
+                if res not in episode_resolutions[key]:
+                    episode_resolutions[key].append(res)
+                if res not in episodes[key].downloads:
+                    episodes[key].downloads[res] = []
+                episodes[key].downloads[res].append(DownloadLink(hosting='Mirrored', url=url, resolution=res))
         
         for url in download_urls:
             if 'mirrored' in url.lower():
-                series_match = re.search(r'\[.*?\]_(.+?)_E\d+', url)
-                if series_match:
-                    detected_series = series_match.group(1).replace('_', ' ')
+                detected_series = None
+                fn_match = re.search(r'/([^/]+\.mp4)', url, re.IGNORECASE)
+                if fn_match:
+                    parsed_info = parse_filename(fn_match.group(1))
+                    if parsed_info:
+                        detected_series = parsed_info['series_name']
+                if not detected_series:
+                    series_match = re.search(r'\[.*?\]_(.+?)(?:_S\d+)?_E\d+', url, re.IGNORECASE)
+                    if series_match:
+                        detected_series = series_match.group(1).replace('_', ' ')
+                if detected_series:
                     for ep in episodes.values():
                         if ep.series_name == "Unknown":
                             ep.series_name = detected_series
@@ -1308,11 +1386,31 @@ with col1:
     )
     fill_mode = "append" if fill_mode_label.startswith("Append") else "replace"
     
-    # ouo.io Shortening Settings
-    with st.expander("🔗 ouo.io Shortening", expanded=False):
-        ouo_enabled = st.checkbox("Enable Link Shortening", value=False, key="ouo_enabled")
-        if ouo_enabled:
-            ouo_api_key = st.text_input("API Key", value=DEFAULT_OUO_API_KEY, type="password", key="ouo_api_key")
+    # Shortening settings (provider selectable)
+    with st.expander("🔗 Link Shortening", expanded=False):
+        shortener_enabled = st.checkbox("Enable Link Shortening", value=False, key="shortener_enabled")
+        if shortener_enabled:
+            provider_label = st.selectbox(
+                "Provider",
+                options=["ouo.io", "safelinkearn.com"],
+                index=0,
+                key="shortener_provider",
+            )
+            shortener_provider = "safelinkearn" if provider_label.startswith("safelinkearn") else "ouo"
+            if shortener_provider == "ouo":
+                shortener_api_key = st.text_input(
+                    "API Key",
+                    value=DEFAULT_OUO_API_KEY,
+                    type="password",
+                    key="ouo_api_key",
+                )
+            else:
+                shortener_api_key = st.text_input(
+                    "API Token",
+                    value=DEFAULT_SAFELINKEARN_API_TOKEN,
+                    type="password",
+                    key="safelinkearn_api_token",
+                )
             available_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored', 'Jioupload', 'Filekeeper']
             shorten_hosts = st.multiselect(
                 "Servers to shorten",
@@ -1322,40 +1420,77 @@ with col1:
             )
             st.caption("Shortened links are cached for 1 hour")
         else:
-            ouo_api_key = ""
+            shortener_provider = "ouo"
+            shortener_api_key = ""
             shorten_hosts = []
     
     if st.button("Generate", type="primary", use_container_width=True):
         if input_text.strip():
             # Prepare shortening settings
-            shorten_set = set(shorten_hosts) if ouo_enabled else set()
+            shorten_set = set(shorten_hosts) if shortener_enabled else set()
+            active_shortener_key = shortener_api_key if shortener_enabled else ""
             
-            # Detect if movie or series format
-            is_movie = is_movie_format(input_text)
-            if is_movie:
-                episodes = parse_movie_input(input_text, shorten_set, ouo_api_key if ouo_enabled else "")
-            else:
-                episodes = parse_input(input_text, shorten_set, ouo_api_key if ouo_enabled else "")
-            
+            content_types = detect_input_content_types(input_text)
+            has_movie = content_types['has_movie']
+            has_series = content_types['has_series']
+            movie_items: Dict[str, Episode] = {}
+            series_items: Dict[str, Episode] = {}
+
+            if has_movie:
+                movie_items = parse_movie_input(input_text, shorten_set, active_shortener_key, shortener_provider)
+            if has_series or (not has_movie and not has_series):
+                series_items = parse_input(input_text, shorten_set, active_shortener_key, shortener_provider)
+
             if series_name:
-                for ep in episodes.values():
+                for ep in movie_items.values():
                     ep.series_name = series_name
-            if episodes:
-                # Sort keys appropriately
-                if is_movie:
-                    sorted_items = sorted(episodes.items())
-                    scripts = {key: {'js': generate_quickfill_js(ep, fill_mode=fill_mode), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'episode': ep.number, 'is_movie': True} for key, ep in sorted_items}
-                else:
-                    # Sort by series name first, then by episode number
-                    def sort_key(item):
-                        ep = item[1]
-                        ep_num = int(ep.number) if ep.number.isdigit() else 0
-                        return (ep.series_name, ep_num)
-                    sorted_items = sorted(episodes.items(), key=sort_key)
-                    scripts = {key: {'js': generate_quickfill_js(ep, fill_mode=fill_mode), 'embeds': len(ep.embeds), 'resolutions': list(ep.downloads.keys()), 'series': ep.series_name, 'episode': ep.number, 'is_movie': False} for key, ep in sorted_items}
+                for ep in series_items.values():
+                    ep.series_name = series_name
+
+            scripts = {}
+
+            if movie_items:
+                sorted_movies = sorted(movie_items.items())
+                for key, ep in sorted_movies:
+                    script_key = f"movie::{key}"
+                    scripts[script_key] = {
+                        'js': generate_quickfill_js(ep, fill_mode=fill_mode),
+                        'embeds': len(ep.embeds),
+                        'resolutions': list(ep.downloads.keys()),
+                        'series': ep.series_name,
+                        'episode': ep.number,
+                        'is_movie': True
+                    }
+
+            if series_items:
+                # Sort by series name first, then by episode number
+                def sort_key(item):
+                    ep = item[1]
+                    ep_num = int(ep.number) if ep.number.isdigit() else 0
+                    return (ep.series_name, ep_num)
+
+                sorted_series = sorted(series_items.items(), key=sort_key)
+                for key, ep in sorted_series:
+                    script_key = f"series::{key}"
+                    scripts[script_key] = {
+                        'js': generate_quickfill_js(ep, fill_mode=fill_mode),
+                        'embeds': len(ep.embeds),
+                        'resolutions': list(ep.downloads.keys()),
+                        'series': ep.series_name,
+                        'episode': ep.number,
+                        'is_movie': False
+                    }
+
+            if scripts:
                 st.session_state.generated_scripts = scripts
-                item_type = "movie" if is_movie else "episode"
-                st.success(f"Generated {len(scripts)} {item_type} scripts")
+                movie_count = sum(1 for data in scripts.values() if data['is_movie'])
+                series_count = len(scripts) - movie_count
+                if movie_count and series_count:
+                    st.success(f"Generated {len(scripts)} scripts ({movie_count} movie, {series_count} episode)")
+                elif movie_count:
+                    st.success(f"Generated {movie_count} movie scripts")
+                else:
+                    st.success(f"Generated {series_count} episode scripts")
             else:
                 st.error("No episodes/movies detected")
         else:
@@ -1365,19 +1500,24 @@ with col2:
     st.markdown("### Output")
     if st.session_state.generated_scripts:
         scripts = st.session_state.generated_scripts
-        # Check if it's movie format
-        first_script = next(iter(scripts.values()), {})
-        is_movie = first_script.get('is_movie', False)
-        
-        # Create display options based on type
-        if is_movie:
-            episode_options = list(scripts.keys())  # Just movie titles
-            selected = st.selectbox("Movie", episode_options)
-            key = selected
+        key_list = list(scripts.keys())
+        has_movie = any(scripts[k]['is_movie'] for k in key_list)
+        has_series = any(not scripts[k]['is_movie'] for k in key_list)
+
+        if has_movie and has_series:
+            options = [
+                f"[Movie] {scripts[k]['series']}" if scripts[k]['is_movie'] else f"[Episode] {scripts[k]['series']} E{scripts[k]['episode']}"
+                for k in key_list
+            ]
+            selected_idx = st.selectbox("Item", range(len(options)), format_func=lambda i: options[i])
+            key = key_list[selected_idx] if selected_idx is not None else None
+        elif has_movie:
+            options = [scripts[k]['series'] for k in key_list]
+            selected_idx = st.selectbox("Movie", range(len(options)), format_func=lambda i: options[i])
+            key = key_list[selected_idx] if selected_idx is not None else None
         else:
-            episode_options = [f"{scripts[key]['series']} E{scripts[key]['episode']}" for key in scripts.keys()]
-            key_list = list(scripts.keys())
-            selected_idx = st.selectbox("Episode", range(len(episode_options)), format_func=lambda i: episode_options[i])
+            options = [f"{scripts[k]['series']} E{scripts[k]['episode']}" for k in key_list]
+            selected_idx = st.selectbox("Episode", range(len(options)), format_func=lambda i: options[i])
             key = key_list[selected_idx] if selected_idx is not None else None
         
         if key and key in scripts:
@@ -1406,8 +1546,8 @@ with col2:
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for n, data in scripts.items():
-                    if is_movie:
-                        safe_title = re.sub(r'[^\w\s-]', '', n).strip().replace(' ', '_')
+                    if data.get('is_movie'):
+                        safe_title = re.sub(r'[^\w\s-]', '', data['series']).strip().replace(' ', '_')
                         zf.writestr(f"quickfill_{safe_title}.js", data['js'])
                     else:
                         # Create abbreviated series name (first letters of each word, max 10 chars)

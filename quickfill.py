@@ -21,6 +21,7 @@ import io
 
 DEFAULT_OUO_API_KEY = "8pHuHRq5"
 DEFAULT_SAFELINKEARN_API_TOKEN = "b7e08e60216a7e4af740e7cd46e348a7e6fcea17"
+DEFAULT_SAFELINKU_API_TOKEN = "3e3844f4c831f2bc46cfdd15e8d8c370b2c39c2b"
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
@@ -46,6 +47,32 @@ def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
         return ""
 
     try:
+        if provider == "safelinku":
+            response = requests.post(
+                "https://safelinku.com/api/v1/links",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json={"url": url},
+                timeout=10,
+            )
+            if response.status_code in (200, 201):
+                time.sleep(1.05)  # 60 requests/minute rate limit
+                try:
+                    data = response.json()
+                except Exception:
+                    try:
+                        data = json.loads(response.text or "{}")
+                    except Exception:
+                        data = {}
+                for key in ("shortenedUrl", "shortened_url", "short_url", "url", "link"):
+                    short = normalize_shortened(str(data.get(key, "")))
+                    if short:
+                        return short
+            return url
+
         if provider == "safelinkearn":
             response = requests.get(
                 "https://www.safelinkearn.com/api",
@@ -526,6 +553,41 @@ def detect_hosting(url: str) -> str:
         if key in url_lower:
             return name
     return 'Other'
+
+
+def detect_shorten_hosts_from_input(text: str, available_hosts: List[str]) -> List[str]:
+    """Auto-detect hosts present in current input for shortening defaults."""
+    if not text.strip():
+        return []
+
+    available_set = set(available_hosts)
+    detected: List[str] = []
+
+    for raw_line in text.split('\n'):
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        url = None
+        if line.startswith('[url='):
+            bbcode = parse_bbcode(line)
+            if bbcode:
+                url = bbcode['url']
+        elif line.startswith('<iframe'):
+            src_match = re.search(r'src=["\']([^"\']+)["\']', line)
+            if src_match:
+                url = src_match.group(1)
+        elif line.startswith('http://') or line.startswith('https://'):
+            url = line.split()[0]
+
+        if not url:
+            continue
+
+        hosting = detect_hosting(url)
+        if hosting in available_set and hosting not in detected:
+            detected.append(hosting)
+
+    return detected
 
 
 def parse_bbcode(line: str) -> Optional[Dict]:
@@ -1423,11 +1485,16 @@ with col1:
         if shortener_enabled:
             provider_label = st.selectbox(
                 "Provider",
-                options=["ouo.io", "safelinkearn.com"],
+                options=["ouo.io", "safelinkearn.com", "safelinku.com"],
                 index=0,
                 key="shortener_provider",
             )
-            shortener_provider = "safelinkearn" if provider_label.startswith("safelinkearn") else "ouo"
+            if provider_label.startswith("safelinkearn"):
+                shortener_provider = "safelinkearn"
+            elif provider_label.startswith("safelinku"):
+                shortener_provider = "safelinku"
+            else:
+                shortener_provider = "ouo"
             if shortener_provider == "ouo":
                 shortener_api_key = st.text_input(
                     "API Key",
@@ -1435,20 +1502,46 @@ with col1:
                     type="password",
                     key="ouo_api_key",
                 )
-            else:
+            elif shortener_provider == "safelinkearn":
                 shortener_api_key = st.text_input(
                     "API Token",
                     value=DEFAULT_SAFELINKEARN_API_TOKEN,
                     type="password",
                     key="safelinkearn_api_token",
                 )
+            else:
+                shortener_api_key = st.text_input(
+                    "API Token",
+                    value=DEFAULT_SAFELINKU_API_TOKEN,
+                    type="password",
+                    key="safelinku_api_token",
+                )
             available_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored', 'Jioupload', 'Filekeeper']
+            detected_hosts = detect_shorten_hosts_from_input(input_text, available_hosts)
+            auto_hosts = detected_hosts if detected_hosts else ['BuzzHeavier', 'Gofile']
+            input_sig = input_text.strip()
+            prev_sig = st.session_state.get("_shorten_hosts_input_sig")
+            prev_auto = st.session_state.get("_shorten_hosts_auto", [])
+            current_selection = st.session_state.get("shorten_hosts")
+
+            # Auto-update default selection only when user has not customized it.
+            if "shorten_hosts" not in st.session_state:
+                st.session_state["shorten_hosts"] = auto_hosts
+            elif prev_sig != input_sig and (not current_selection or current_selection == prev_auto):
+                st.session_state["shorten_hosts"] = auto_hosts
+
+            st.session_state["_shorten_hosts_input_sig"] = input_sig
+            st.session_state["_shorten_hosts_auto"] = auto_hosts
+
             shorten_hosts = st.multiselect(
                 "Servers to shorten",
                 options=available_hosts,
-                default=['BuzzHeavier', 'Gofile'],
                 key="shorten_hosts"
             )
+            if detected_hosts:
+                st.caption(f"Auto-detected hosts in input: {', '.join(detected_hosts)}")
+            else:
+                st.caption("No host detected from input yet (fallback default: BuzzHeavier, Gofile).")
             st.caption("Shortened links are cached for 1 hour")
         else:
             shortener_provider = "ouo"

@@ -169,22 +169,24 @@ def maybe_shorten_url(
 def inject_custom_css():
     st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=swap');
     
     /* Base */
     .stApp {
         background-color: #09090b;
     }
     
-    *:not(.material-icons):not(.material-symbols-outlined):not(.material-symbols-rounded):not(.material-symbols-sharp) {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    *:not(.material-icons):not(.material-symbols-outlined):not(.material-symbols-rounded):not(.material-symbols-sharp):not([class*="material-symbols"]):not([data-testid="stIconMaterial"]) {
+        font-family: 'Inter', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
 
     /* Keep icon ligatures rendered as icons (avoid showing raw text like "arrow_downward") */
     .material-icons,
     .material-symbols-outlined,
     .material-symbols-rounded,
-    .material-symbols-sharp {
+    .material-symbols-sharp,
+    [class*="material-symbols"],
+    [data-testid="stIconMaterial"] {
         font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
         font-weight: normal !important;
         font-style: normal !important;
@@ -193,6 +195,7 @@ def inject_custom_css():
         white-space: nowrap !important;
         font-feature-settings: 'liga' !important;
         -webkit-font-feature-settings: 'liga' !important;
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
     }
     
     /* Hide defaults */
@@ -1802,7 +1805,7 @@ with col1:
     fill_mode = "append" if fill_mode_label.startswith("Append") else "replace"
     parser_debug_enabled = st.checkbox("Parser Debug Mode", value=False, help="Show line-by-line parsing diagnostics after Generate.")
 
-    with st.expander("🧩 Custom Host Rules", expanded=False):
+    with st.expander("Custom Host Rules", expanded=False):
         custom_download_rules_text = st.text_area(
             "Download Host Rules (domain=HostingName)",
             key="custom_download_rules_text",
@@ -1820,7 +1823,7 @@ with col1:
     custom_embed_host_rules = parse_custom_host_rules(custom_embed_rules_text)
     
     # Shortening settings (provider selectable)
-    with st.expander("🔗 Link Shortening", expanded=False):
+    with st.expander("Link Shortening", expanded=False):
         shortener_enabled = st.checkbox("Enable Link Shortening", value=False, key="shortener_enabled")
         if shortener_enabled:
             provider_label = st.selectbox(
@@ -2064,12 +2067,12 @@ with col2:
         st.info("Generate scripts to see output")
 
 if st.session_state.shorten_warnings:
-    with st.expander(f"⚠ Shortener Warnings ({len(st.session_state.shorten_warnings)})", expanded=False):
+    with st.expander(f"Shortener Warnings ({len(st.session_state.shorten_warnings)})", expanded=False):
         for msg in st.session_state.shorten_warnings:
             st.caption(f"- {msg}")
 
 if st.session_state.parser_debug_report:
-    with st.expander(f"🧪 Parser Debug ({len(st.session_state.parser_debug_report)} lines)", expanded=False):
+    with st.expander(f"Parser Debug ({len(st.session_state.parser_debug_report)} lines)", expanded=False):
         st.code('\n'.join(st.session_state.parser_debug_report), language='text')
 
 with st.expander("Help"):

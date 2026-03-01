@@ -22,6 +22,7 @@ import io
 DEFAULT_OUO_API_KEY = "8pHuHRq5"
 DEFAULT_SAFELINKEARN_API_TOKEN = "b7e08e60216a7e4af740e7cd46e348a7e6fcea17"
 DEFAULT_SAFELINKU_API_TOKEN = "3e3844f4c831f2bc46cfdd15e8d8c370b2c39c2b"
+DEFAULT_SHRINKBIXBY_API_TOKEN = "125d33f7a072b90189af1b6c3b04d7924a279c17"
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
@@ -99,6 +100,31 @@ def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
                         return short
             return url
 
+        if provider == "shrinkbixby":
+            response = requests.get(
+                "https://shrinkbixby.com/api",
+                params={"api": api_key, "url": url, "format": "text"},
+                timeout=10,
+            )
+            if response.status_code == 200:
+                time.sleep(0.3)  # Rate limiting
+                body = response.text.strip()
+                short = normalize_shortened(body)
+                if short:
+                    return short
+                if body.startswith("{") and body.endswith("}"):
+                    try:
+                        data = response.json()
+                    except Exception:
+                        try:
+                            data = json.loads(body)
+                        except Exception:
+                            data = {}
+                    short = normalize_shortened(str(data.get("shortenedUrl", "")))
+                    if short:
+                        return short
+            return url
+
         # Default: ouo.io
         response = requests.get(
             f"https://ouo.io/api/{api_key}",
@@ -112,6 +138,29 @@ def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
         return url
     except:
         return url
+
+
+def maybe_shorten_url(
+    url: str,
+    hosting: str,
+    shorten_hosts: Set[str],
+    api_key: str,
+    shortener_provider: str,
+    shorten_warnings: Optional[List[str]] = None,
+    context_label: str = "",
+) -> str:
+    """Apply shortening only for selected hosts and collect warnings when it fails."""
+    if hosting not in shorten_hosts or not api_key:
+        return url
+
+    short = shorten_url_cached(shortener_provider, api_key, url)
+    if not short or not (short.startswith("http://") or short.startswith("https://")):
+        if shorten_warnings is not None:
+            shorten_warnings.append(f"{context_label} invalid shortlink response for {hosting}: {url}")
+        return url
+    if short == url and shorten_warnings is not None:
+        shorten_warnings.append(f"{context_label} shortener returned original URL for {hosting}: {url}")
+    return short
 
 # =============================================================================
 # CUSTOM CSS - SHADCN DARK THEME
@@ -355,22 +404,61 @@ EMBED_HOST_CONFIG = [
     {'pattern': 'bysetayico.com', 'name': 'FileMoon'},
 ]
 
+DEFAULT_DOWNLOAD_HOST_MAP = {
+    'terabox': 'Terabox',
+    'mirrored': 'Mirrored',
+    'mir.cr': 'Mirrored',
+    'upfiles': 'Upfiles',
+    'buzzheavier': 'BuzzHeavier',
+    'gofile': 'Gofile',
+    'filemoon': 'FileMoon',
+    'vidhide': 'VidHide',
+    'krakenfiles': 'Krakenfiles',
+    'vikingfile': 'Vikingfile',
+    'veev.to': 'Veev',
+    'bysetayico': 'FileMoon',
+    'doodstream': 'Doodstream',
+    'streamtape': 'StreamTape',
+    'jiouploads': 'Jioupload',
+    'filekeeper': 'Filekeeper',
+}
 
-def get_embed_hostname(iframe: str) -> str:
+DEFAULT_EMBED_HOST_MAP = {
+    'short.icu': 'HydraX',
+    'ok.ru': 'OKru',
+    'turbovidhls.com': 'TurboVid',
+    'emturbovid.com': 'TurboVid',
+    'waaw.to': 'Waaw',
+    'p2pstream': 'StreamP2P',
+    'upns.pro': 'Upnshare',
+    'bysetayico': 'FileMoon',
+    'hqq.to': 'LuluTV',
+    'veev.to': 'Veev',
+}
+
+
+def build_embed_host_config(custom_embed_rules: Optional[Dict[str, str]] = None) -> List[Dict[str, str]]:
+    if not custom_embed_rules:
+        return EMBED_HOST_CONFIG
+    custom_items = [{'pattern': k.lower(), 'name': v} for k, v in custom_embed_rules.items() if k and v]
+    return custom_items + EMBED_HOST_CONFIG
+
+
+def get_embed_hostname(iframe: str, custom_embed_rules: Optional[Dict[str, str]] = None) -> str:
     src_match = re.search(r'src=["\']([^"\']+)["\']', iframe)
     if src_match:
         url = src_match.group(1).lower()
-        for config in EMBED_HOST_CONFIG:
+        for config in build_embed_host_config(custom_embed_rules):
             if config['pattern'] in url:
                 return config['name']
     return 'Other'
 
 
-def get_embed_priority(iframe: str) -> int:
+def get_embed_priority(iframe: str, custom_embed_rules: Optional[Dict[str, str]] = None) -> int:
     src_match = re.search(r'src=["\']([^"\']+)["\']', iframe)
     if src_match:
         url = src_match.group(1).lower()
-        for idx, config in enumerate(EMBED_HOST_CONFIG):
+        for idx, config in enumerate(build_embed_host_config(custom_embed_rules)):
             if config['pattern'] in url:
                 return idx
     return 999
@@ -384,19 +472,21 @@ def parse_filename(filename: str) -> Optional[Dict]:
     if match:
         return {'series_name': match.group(1).strip(), 'year': match.group(2), 'episode': match.group(3), 'season': None}
     
-    # Format 2: [Tag] Series.SxxExx or [Tag] Series SxxExx (no year)
-    pattern2 = r'\[.*?\]\s*(.+?)[.\s]S(\d+)E(\d+)'
+    # Format 2: [Tag] Series.SxxExx / Series SxxExx / Series_SxxExx
+    pattern2 = r'\[.*?\]\s*(.+?)[.\s_-]S(\d+)E(\d+)'
     match = re.search(pattern2, filename, re.IGNORECASE)
     if match:
         series = match.group(1).strip().replace('.', ' ').replace('_', ' ')
+        series = re.sub(r'\s*-\s*re$', '', series, flags=re.IGNORECASE).strip()
         return {'series_name': series, 'year': '', 'episode': match.group(3), 'season': match.group(2)}
     
     # Format 3: Just Exx anywhere - [Tag] Series.Name.Year.Exx
-    pattern3 = r'\[.*?\]\s*(.+?)[.\s]E(\d+)'
-    match = re.search(pattern3, filename)
+    pattern3 = r'\[.*?\]\s*(.+?)[.\s_-]E(\d+)'
+    match = re.search(pattern3, filename, re.IGNORECASE)
     if match:
         series = match.group(1).strip().replace('.', ' ').replace('_', ' ')
         series = re.sub(r'\s+\d{4}\s*$', '', series).strip()
+        series = re.sub(r'\s*-\s*re$', '', series, flags=re.IGNORECASE).strip()
         return {'series_name': series, 'year': '', 'episode': match.group(2), 'season': None}
     
     return None
@@ -409,24 +499,24 @@ def extract_resolution(text: str) -> str:
 
 def parse_movie_filename(filename: str) -> Optional[Dict]:
     """Parse movie filename: [tag] Title.Year.Res.ext -> returns title, year, resolution"""
-    # Pattern 1: [tag] Title.Year.Resolution.ext (dots)
-    pattern1 = r'\[.*?\]\s*(.+?)\.(\d{4})\.(\d{3,4})p'
+    # Pattern 1: [tag] Title.Year.<source>.Resolution.ext (dots)
+    pattern1 = r'\[.*?\]\s*(.+?)\.(\d{4})(?:\.[A-Za-z0-9-]+)*\.(\d{3,4})p'
     match = re.search(pattern1, filename, re.IGNORECASE)
     if match:
         title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
         title = re.sub(r'^\[[^\]]+\]\s*', '', title).strip()
         return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
     
-    # Pattern 2: [tag] Title Year.Resolution.ext (spaces in title)
-    pattern2 = r'\[.*?\]\s*(.+?)\s+(\d{4})\.(\d{3,4})p'
+    # Pattern 2: [tag] Title Year.<source>.Resolution.ext (spaces in title)
+    pattern2 = r'\[.*?\]\s*(.+?)\s+(\d{4})(?:[.\s][A-Za-z0-9-]+)*[.\s](\d{3,4})p'
     match = re.search(pattern2, filename, re.IGNORECASE)
     if match:
         title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
         title = re.sub(r'^\[[^\]]+\]\s*', '', title).strip()
         return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
     
-    # Pattern 3: [tag]_Title_Year.Resolution.ext (underscores)
-    pattern3 = r'\[.*?\]_(.+?)_(\d{4})\.(\d{3,4})p'
+    # Pattern 3: [tag]_Title_Year_<source>_Resolution.ext (underscores)
+    pattern3 = r'\[.*?\]_(.+?)_(\d{4})(?:_[A-Za-z0-9-]+)*_(\d{3,4})p'
     match = re.search(pattern3, filename, re.IGNORECASE)
     if match:
         title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
@@ -513,6 +603,104 @@ def detect_input_content_types(text: str) -> Dict[str, bool]:
     return {'has_movie': has_movie, 'has_series': has_series}
 
 
+def build_parser_debug_report(
+    text: str,
+    custom_download_host_rules: Optional[Dict[str, str]] = None,
+    custom_embed_host_rules: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """Create line-by-line parser diagnostics."""
+    report: List[str] = []
+    for idx, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            report.append(f"L{idx:03d}: skip (empty)")
+            continue
+
+        if line.lower() == "download link":
+            report.append(f"L{idx:03d}: marker -> download section")
+            continue
+
+        if line.startswith("[url="):
+            bb = parse_bbcode(line)
+            if not bb:
+                report.append(f"L{idx:03d}: skip (invalid BBCode)")
+                continue
+            host = detect_hosting(bb["url"], custom_download_host_rules)
+            embed_host = detect_embed_host_from_url(bb["url"], custom_embed_host_rules)
+            movie_info = parse_movie_filename(bb["filename"])
+            series_info = parse_filename(bb["filename"])
+            if movie_info:
+                report.append(
+                    f"L{idx:03d}: BBCode movie | host={host} | title={movie_info['title']} | res={movie_info['resolution']}"
+                )
+            elif series_info:
+                report.append(
+                    f"L{idx:03d}: BBCode episode | host={host} | series={series_info['series_name']} | ep={series_info['episode']}"
+                )
+            elif embed_host != "Other":
+                report.append(f"L{idx:03d}: BBCode embed-only | embedHost={embed_host}")
+            else:
+                report.append(f"L{idx:03d}: skip (BBCode filename unsupported)")
+            continue
+
+        if line.startswith("<iframe"):
+            src_match = re.search(r'src=["\']([^"\']+)["\']', line)
+            if not src_match:
+                report.append(f"L{idx:03d}: skip (iframe without src)")
+                continue
+            src = src_match.group(1)
+            embed_host = detect_embed_host_from_url(src, custom_embed_host_rules)
+            url_info = parse_url_path(src)
+            if url_info:
+                report.append(
+                    f"L{idx:03d}: iframe embed+urlmeta | embedHost={embed_host} | series={url_info['series_name']} | ep={url_info['episode']} | res={url_info['resolution']}"
+                )
+            else:
+                report.append(f"L{idx:03d}: iframe embed | embedHost={embed_host}")
+            continue
+
+        if line.startswith("http://") or line.startswith("https://"):
+            host = detect_hosting(line, custom_download_host_rules)
+            movie_info = parse_movie_from_url(line)
+            url_info = parse_url_path(line)
+            if movie_info:
+                report.append(
+                    f"L{idx:03d}: direct URL movie-download | host={host} | title={movie_info['title']} | res={movie_info['resolution']}"
+                )
+            elif url_info:
+                report.append(
+                    f"L{idx:03d}: direct URL episode-download | host={host} | series={url_info['series_name']} | ep={url_info['episode']} | res={url_info['resolution']}"
+                )
+            elif host != "Other":
+                report.append(f"L{idx:03d}: direct URL generic-download | host={host}")
+            else:
+                report.append(f"L{idx:03d}: skip (unknown direct URL host)")
+            continue
+
+        if line.startswith("["):
+            movie_info = parse_movie_filename(line)
+            series_info = parse_filename(line)
+            if movie_info:
+                report.append(
+                    f"L{idx:03d}: header movie | title={movie_info['title']} | year={movie_info['year']} | res={movie_info['resolution']}"
+                )
+            elif series_info:
+                report.append(
+                    f"L{idx:03d}: header episode | series={series_info['series_name']} | ep={series_info['episode']}"
+                )
+            else:
+                report.append(f"L{idx:03d}: skip (header pattern unsupported)")
+            continue
+
+        if " - http" in line:
+            report.append(f"L{idx:03d}: filename-url pair")
+            continue
+
+        report.append(f"L{idx:03d}: skip (unrecognized format)")
+
+    return report
+
+
 def parse_url_path(url: str) -> Optional[Dict]:
     """Parse episode info from URL path"""
     path_match = re.search(r'/([^/]+)(?:\.[^/]+)?$', url)
@@ -522,40 +710,70 @@ def parse_url_path(url: str) -> Optional[Dict]:
     path = path_match.group(1).lower()
     
     # Try SxxExx format first
-    sxxexx_match = re.search(r'-s(\d{1,2})e(\d{1,3})(?:-|$)', path)
+    sxxexx_match = re.search(r'[-._]s(\d{1,2})e(\d{1,3})(?:[-._]|$)', path)
     if sxxexx_match:
         season = sxxexx_match.group(1).zfill(2)
         episode = sxxexx_match.group(2).zfill(2)
     else:
         # Try just Exx format
-        ep_match = re.search(r'-e(\d{1,3})(?:-|$)', path)
+        ep_match = re.search(r'[-._]e(\d{1,3})(?:[-._]|$)', path)
         if not ep_match:
             return None
         season = None
         episode = ep_match.group(1).zfill(2)
     
-    res_match = re.search(r'-(360|480|720|1080|2160)p?(?:-|$)', path)
+    res_match = re.search(r'[-._](360|480|720|1080|2160)p?(?:[-._]|$)', path)
     resolution = res_match.group(1) + 'p' if res_match else '720p'
-    series_match = re.search(r'^[^/]*?-(.+?)(?:-\d{4})?-(?:s\d+)?e\d+', path)
-    series_name = series_match.group(1).replace('-', ' ').title() if series_match else 'Unknown'
+    series_match = re.search(r'^[^/]*?[-._](.+?)(?:[-._]\d{4})?(?:[-._]s\d+)?e\d+', path)
+    series_name = series_match.group(1).replace('-', ' ').replace('.', ' ').replace('_', ' ').title() if series_match else 'Unknown'
     
     return {'episode': episode, 'resolution': resolution, 'series_name': series_name, 'season': season}
 
 
-def detect_hosting(url: str) -> str:
+def parse_custom_host_rules(raw_text: str) -> Dict[str, str]:
+    """
+    Parse custom host rule lines:
+      domain=HostName
+      domain -> HostName
+      domain,HostName
+    """
+    rules: Dict[str, str] = {}
+    for raw_line in (raw_text or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = None
+        if '=' in line:
+            parts = line.split('=', 1)
+        elif '->' in line:
+            parts = line.split('->', 1)
+        elif ',' in line:
+            parts = line.split(',', 1)
+        if not parts:
+            continue
+        pattern = parts[0].strip().lower()
+        host_name = parts[1].strip()
+        if pattern and host_name:
+            rules[pattern] = host_name
+    return rules
+
+
+def detect_hosting(url: str, custom_host_rules: Optional[Dict[str, str]] = None) -> str:
     url_lower = url.lower()
-    hosts = {'terabox': 'Terabox', 'mirrored': 'Mirrored', 'mir.cr': 'Mirrored', 'upfiles': 'Upfiles',
-             'buzzheavier': 'BuzzHeavier', 'gofile': 'Gofile', 'filemoon': 'FileMoon',
-             'vidhide': 'VidHide', 'krakenfiles': 'Krakenfiles', 'vikingfile': 'Vikingfile', 'veev.to': 'Veev',
-             'bysetayico': 'FileMoon', 'doodstream': 'Doodstream', 'streamtape': 'StreamTape',
-             'jiouploads': 'Jioupload', 'filekeeper': 'Filekeeper'}
+    hosts = dict(DEFAULT_DOWNLOAD_HOST_MAP)
+    if custom_host_rules:
+        hosts.update({k.lower(): v for k, v in custom_host_rules.items() if k and v})
     for key, name in hosts.items():
         if key in url_lower:
             return name
     return 'Other'
 
 
-def detect_shorten_hosts_from_input(text: str, available_hosts: List[str]) -> List[str]:
+def detect_shorten_hosts_from_input(
+    text: str,
+    available_hosts: List[str],
+    custom_host_rules: Optional[Dict[str, str]] = None,
+) -> List[str]:
     """Auto-detect hosts present in current input for shortening defaults."""
     if not text.strip():
         return []
@@ -583,7 +801,7 @@ def detect_shorten_hosts_from_input(text: str, available_hosts: List[str]) -> Li
         if not url:
             continue
 
-        hosting = detect_hosting(url)
+        hosting = detect_hosting(url, custom_host_rules)
         if hosting in available_set and hosting not in detected:
             detected.append(hosting)
 
@@ -598,21 +816,12 @@ def parse_bbcode(line: str) -> Optional[Dict]:
     return None
 
 
-def detect_embed_host_from_url(url: str) -> str:
+def detect_embed_host_from_url(url: str, custom_embed_rules: Optional[Dict[str, str]] = None) -> str:
     """Detect embed hostname dari URL"""
     url_lower = url.lower()
-    hosts = {
-        'short.icu': 'HydraX',
-        'ok.ru': 'OKru',
-        'turbovidhls.com': 'TurboVid',
-        'emturbovid.com': 'TurboVid',
-        'waaw.to': 'Waaw',
-        'p2pstream': 'StreamP2P',
-        'upns.pro': 'Upnshare',
-        'bysetayico': 'FileMoon',
-        'hqq.to': 'LuluTV',
-        'veev.to': 'Veev',
-    }
+    hosts = dict(DEFAULT_EMBED_HOST_MAP)
+    if custom_embed_rules:
+        hosts.update({k.lower(): v for k, v in custom_embed_rules.items() if k and v})
     for key, name in hosts.items():
         if key in url_lower:
             return name
@@ -638,6 +847,9 @@ def parse_movie_input(
     shorten_hosts: Set[str] = None,
     api_key: str = "",
     shortener_provider: str = "ouo",
+    custom_download_host_rules: Optional[Dict[str, str]] = None,
+    custom_embed_host_rules: Optional[Dict[str, str]] = None,
+    shorten_warnings: Optional[List[str]] = None,
 ) -> Dict[str, Episode]:
     """Parse movie input format and return movies as episodes (keyed by normalized title)"""
     if shorten_hosts is None:
@@ -687,7 +899,7 @@ def parse_movie_input(
             
             # If this is BBCode embed, convert URL to iframe immediately
             if bbcode:
-                hostname = detect_embed_host_from_url(bbcode['url'])
+                hostname = detect_embed_host_from_url(bbcode['url'], custom_embed_host_rules)
                 embed_src = to_embed_src(bbcode["url"])
                 iframe = f'<iframe src="{embed_src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                 movies[key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
@@ -721,7 +933,7 @@ def parse_movie_input(
             movie_idx = idx % num_movies
             key = movie_list[movie_idx]['key']
             if key in movies:
-                hostname = get_embed_hostname(iframe)
+                hostname = get_embed_hostname(iframe, custom_embed_host_rules)
                 movies[key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
     
     # Phase 4: Add highest resolution bysetayico embeds
@@ -729,12 +941,12 @@ def parse_movie_input(
         if res_dict and key in movies:
             highest_res = max(res_dict.keys())
             iframe = res_dict[highest_res]
-            hostname = get_embed_hostname(iframe)
+            hostname = get_embed_hostname(iframe, custom_embed_host_rules)
             movies[key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
     
     # Sort embeds by priority
     for key in movies:
-        movies[key].embeds.sort(key=lambda e: get_embed_priority(e.embed))
+        movies[key].embeds.sort(key=lambda e: get_embed_priority(e.embed, custom_embed_host_rules))
     
     # Phase 5: Parse downloads
     if download_section_start > 0:
@@ -757,21 +969,28 @@ def parse_movie_input(
                 if bbcode_match:
                     url, filename = bbcode_match.group(1), bbcode_match.group(2)
                     movie_info = parse_movie_filename(filename)
-                    hosting = detect_hosting(url)
+                    hosting = detect_hosting(url, custom_download_host_rules)
             elif line.startswith('http'):
                 movie_info = parse_movie_from_url(line)
                 if movie_info:
-                    url, hosting = line, detect_hosting(line)
+                    url, hosting = line, detect_hosting(line, custom_download_host_rules)
                 else:
                     # Fallback: plain URL tanpa metadata movie ikut mapping positional
                     # per-host selama host bisa dideteksi (bukan "Other").
-                    hosting = detect_hosting(line)
+                    hosting = detect_hosting(line, custom_download_host_rules)
                     if hosting != 'Other':
                         unassigned_links_by_host.setdefault(hosting, []).append(line)
             
             if movie_info and url and hosting:
-                if hosting in shorten_hosts and api_key:
-                    url = shorten_url_cached(shortener_provider, api_key, url)
+                url = maybe_shorten_url(
+                    url,
+                    hosting,
+                    shorten_hosts,
+                    api_key,
+                    shortener_provider,
+                    shorten_warnings,
+                    f"[Movie {movie_info.get('title', '-')}]",
+                )
                 key = normalize_movie_title(movie_info['title'])
                 display_title = format_movie_display_title(movie_info['title'], movie_info.get('year', ''))
                 res = movie_info['resolution']
@@ -802,8 +1021,15 @@ def parse_movie_input(
                         break
                     url = host_links[host_idx]
                     host_idx += 1
-                    if host_name in shorten_hosts and api_key:
-                        url = shorten_url_cached(shortener_provider, api_key, url)
+                    url = maybe_shorten_url(
+                        url,
+                        host_name,
+                        shorten_hosts,
+                        api_key,
+                        shortener_provider,
+                        shorten_warnings,
+                        f"[Movie {movie_entry.get('title', '-')}]",
+                    )
                     if res not in movies[key].downloads:
                         movies[key].downloads[res] = []
                     # Avoid accidental duplicate insertion.
@@ -847,6 +1073,9 @@ def parse_input(
     shorten_hosts: Set[str] = None,
     api_key: str = "",
     shortener_provider: str = "ouo",
+    custom_download_host_rules: Optional[Dict[str, str]] = None,
+    custom_embed_host_rules: Optional[Dict[str, str]] = None,
+    shorten_warnings: Optional[List[str]] = None,
 ) -> Dict[str, Episode]:
     if shorten_hosts is None:
         shorten_hosts = set()
@@ -879,7 +1108,7 @@ def parse_input(
             for ln in bbcode_lines:
                 bb = parse_bbcode(ln)
                 if bb:
-                    host = detect_hosting(bb['url'])
+                    host = detect_hosting(bb['url'], custom_download_host_rules)
                     if host != 'Other':
                         recognized_download += 1
             if recognized_download / max(len(bbcode_lines), 1) >= 0.6:
@@ -922,7 +1151,7 @@ def parse_input(
                             season=info.get('season', '')
                         )
                     
-                    hostname = detect_embed_host_from_url(bbcode['url'])
+                    hostname = detect_embed_host_from_url(bbcode['url'], custom_embed_host_rules)
                     # Only treat BBCode as embed if host is an embed provider.
                     if hostname != 'Other':
                         embed_src = to_embed_src(bbcode["url"])
@@ -961,7 +1190,7 @@ def parse_input(
                     ep_num = info['episode']
                     if ep_num not in episodes:
                         episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
-                    hostname = get_embed_hostname(next_line)
+                    hostname = get_embed_hostname(next_line, custom_embed_host_rules)
                     episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=next_line))
                     i += 2
                     continue
@@ -1016,7 +1245,7 @@ def parse_input(
                     if res_num not in veev_embeds[ep_num] or res_num > max(veev_embeds[ep_num].keys(), default=0):
                         veev_embeds[ep_num][res_num] = iframe_code
                 else:
-                    hostname = get_embed_hostname(iframe_code)
+                    hostname = get_embed_hostname(iframe_code, custom_embed_host_rules)
                     episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
         i += 1
     
@@ -1025,7 +1254,7 @@ def parse_input(
         if res_dict and ep_num in episodes:
             highest_res = max(res_dict.keys())
             iframe_code = res_dict[highest_res]
-            hostname = get_embed_hostname(iframe_code)
+            hostname = get_embed_hostname(iframe_code, custom_embed_host_rules)
             episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
     
     # Add highest resolution URL-parsed embeds
@@ -1033,7 +1262,7 @@ def parse_input(
         if res_dict and key in episodes:
             highest_res = max(res_dict.keys())
             iframe_code = res_dict[highest_res]
-            hostname = get_embed_hostname(iframe_code)
+            hostname = get_embed_hostname(iframe_code, custom_embed_host_rules)
             episodes[key].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
     
     # Assign standalone iframes positionally if we have series headers
@@ -1043,7 +1272,7 @@ def parse_input(
             ep_idx = idx % num_episodes
             unique_key = series_header_list[ep_idx]['unique_key']
             if unique_key in episodes:
-                hostname = get_embed_hostname(iframe)
+                hostname = get_embed_hostname(iframe, custom_embed_host_rules)
                 episodes[unique_key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
         standalone_embeds = []
 
@@ -1063,7 +1292,7 @@ def parse_input(
                 else:
                     embed_src = to_embed_src(url_or_iframe)
                     embed_code = f'<iframe src="{embed_src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
-                hostname = get_embed_hostname(embed_code)
+                hostname = get_embed_hostname(embed_code, custom_embed_host_rules)
                 if hostname != 'Other':
                     episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=embed_code))
     
@@ -1092,11 +1321,18 @@ def parse_input(
                     
                     if ep_match:
                         ep_num = ep_match.group(1) or ep_match.group(2)
-                        hosting = detect_hosting(url)
+                        hosting = detect_hosting(url, custom_download_host_rules)
                         
                         # Apply shortening if enabled
-                        if hosting in shorten_hosts and api_key:
-                            url = shorten_url_cached(shortener_provider, api_key, url)
+                        url = maybe_shorten_url(
+                            url,
+                            hosting,
+                            shorten_hosts,
+                            api_key,
+                            shortener_provider,
+                            shorten_warnings,
+                            f"[Episode {ep_num}]",
+                        )
                         
                         # Find or create episode with unique key
                         info = parse_filename(filename)
@@ -1123,12 +1359,19 @@ def parse_input(
             # Direct URL - inherit current resolution if no resolution in URL
             elif line.startswith('http'):
                 url_info = parse_url_path(line)
-                hosting = detect_hosting(line)
+                hosting = detect_hosting(line, custom_download_host_rules)
                 
                 # Apply shortening if enabled
                 url = line
-                if hosting in shorten_hosts and api_key:
-                    url = shorten_url_cached(shortener_provider, api_key, line)
+                url = maybe_shorten_url(
+                    line,
+                    hosting,
+                    shorten_hosts,
+                    api_key,
+                    shortener_provider,
+                    shorten_warnings,
+                    f"[URL line {line[:42]}]",
+                )
                 
                 if url_info:
                     # URL has explicit resolution info
@@ -1170,7 +1413,16 @@ def parse_input(
                 res = extract_resolution(filename)
                 if ep_match:
                     ep_num = ep_match.group(1) or ep_match.group(2)
-                    hosting = detect_hosting(url)
+                    hosting = detect_hosting(url, custom_download_host_rules)
+                    url = maybe_shorten_url(
+                        url,
+                        hosting,
+                        shorten_hosts,
+                        api_key,
+                        shortener_provider,
+                        shorten_warnings,
+                        f"[Episode {ep_num}]",
+                    )
                     if ep_num not in episodes:
                         info = parse_filename(filename)
                         episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'] if info else 'Unknown', year='', season=info.get('season', '') if info else '')
@@ -1201,7 +1453,7 @@ def parse_input(
                     season = parsed_info.get('season', '')
                 else:
                     # Fallback for uncommon mirrored naming.
-                    series_match = re.search(r'\[.*?\]_(.+?)(?:[._]S\d+)?[._]E(\d+)', url, re.IGNORECASE)
+                    series_match = re.search(r'\[.*?\]_(.+?)(?:[-._]S\d+)?[-._]E(\d+)', url, re.IGNORECASE)
                     if not series_match:
                         continue
                     series_from_url = series_match.group(1).replace('.', ' ').replace('_', ' ')
@@ -1220,7 +1472,16 @@ def parse_input(
                     episode_resolutions[key].append(res)
                 if res not in episodes[key].downloads:
                     episodes[key].downloads[res] = []
-                episodes[key].downloads[res].append(DownloadLink(hosting='Mirrored', url=url, resolution=res))
+                final_url = maybe_shorten_url(
+                    url,
+                    'Mirrored',
+                    shorten_hosts,
+                    api_key,
+                    shortener_provider,
+                    shorten_warnings,
+                    f"[Episode {ep_num}]",
+                )
+                episodes[key].downloads[res].append(DownloadLink(hosting='Mirrored', url=final_url, resolution=res))
         
         for url in download_urls:
             if 'mirrored' in url.lower():
@@ -1231,7 +1492,7 @@ def parse_input(
                     if parsed_info:
                         detected_series = parsed_info['series_name']
                 if not detected_series:
-                    series_match = re.search(r'\[.*?\]_(.+?)(?:_S\d+)?_E\d+', url, re.IGNORECASE)
+                    series_match = re.search(r'\[.*?\]_(.+?)(?:[-._]S\d+)?[-._]E\d+', url, re.IGNORECASE)
                     if series_match:
                         detected_series = series_match.group(1).replace('_', ' ')
                 if detected_series:
@@ -1243,12 +1504,12 @@ def parse_input(
         if standalone_embeds and len(episodes) == 1:
             ep_num = list(episodes.keys())[0]
             for embed in standalone_embeds:
-                hostname = get_embed_hostname(embed)
+                hostname = get_embed_hostname(embed, custom_embed_host_rules)
                 episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=embed))
     
     # Sort embeds by priority
     for ep in episodes.values():
-        ep.embeds.sort(key=lambda x: get_embed_priority(x.embed))
+        ep.embeds.sort(key=lambda x: get_embed_priority(x.embed, custom_embed_host_rules))
     
     return episodes
 
@@ -1339,27 +1600,58 @@ const EPISODE_DATA = {{
         if (btn) {{ btn.click(); await sleep(DELAY); }}
     }};
     
+    const normalize = v => (v || '').toString().trim();
+    const normalizeLower = v => normalize(v).toLowerCase();
+    const extractSrc = html => {{
+        const m = normalize(html).match(/src=["']([^"']+)["']/i);
+        return m ? normalizeLower(m[1]) : '';
+    }};
+    const getSelectValue = select => {{
+        if (!select) return '';
+        const opt = select.options && select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+        return normalize(select.value || (opt ? opt.text : ''));
+    }};
+    
     const setEmbeds = async embeds => {{
         const container = document.querySelector('#embed-video .rwmb-tab-panel-input-version .rwmb-input');
         if (!container) return;
         let clones = getClones(container);
-        let baseIndex = 0;
-        if (isAppendMode) {{
-            const hasExistingData = clones.some(clone => {{
+
+        const findExistingEmbedClone = target => {{
+            const targetSrc = extractSrc(target.embed);
+            const targetHost = normalizeLower(target.hostname);
+            return clones.find(clone => {{
                 const h = clone.querySelector('input[name*="ab_hostname"]');
                 const e = clone.querySelector('textarea[name*="ab_embed"]');
-                return (h && h.value.trim()) || (e && e.value.trim());
+                const existingHost = normalizeLower(h?.value);
+                const existingEmbed = normalize(e?.value);
+                if (!existingHost && !existingEmbed) return false;
+                const existingSrc = extractSrc(existingEmbed);
+                if (targetSrc && existingSrc && targetSrc === existingSrc) return true;
+                return existingHost === targetHost && existingEmbed === normalize(target.embed);
             }});
-            baseIndex = hasExistingData ? clones.length : 0;
-        }}
+        }};
+
         for (let i = 0; i < embeds.length; i++) {{
-            const targetIdx = baseIndex + i;
-            while (clones.length <= targetIdx) {{ await addClone(container); clones = getClones(container); }}
-            const clone = clones[targetIdx];
+            const target = embeds[i];
+            let clone = null;
+
+            if (isAppendMode) {{
+                clone = findExistingEmbedClone(target);
+                if (clone) continue; // smart merge: skip exact duplicate
+                const targetIdx = clones.length;
+                while (clones.length <= targetIdx) {{ await addClone(container); clones = getClones(container); }}
+                clone = clones[targetIdx];
+            }} else {{
+                const targetIdx = i;
+                while (clones.length <= targetIdx) {{ await addClone(container); clones = getClones(container); }}
+                clone = clones[targetIdx];
+            }}
+
             const h = clone.querySelector('input[name*="ab_hostname"]');
             const e = clone.querySelector('textarea[name*="ab_embed"]');
-            if (h) {{ h.value = embeds[i].hostname; trigger(h); }}
-            if (e) {{ e.value = embeds[i].embed; trigger(e); }}
+            if (h) {{ h.value = target.hostname; trigger(h); }}
+            if (e) {{ e.value = target.embed; trigger(e); }}
         }}
     }};
     
@@ -1370,42 +1662,68 @@ const EPISODE_DATA = {{
         if (!epClone) return;
         const epTitle = epClone.querySelector('input[name*="ab_eptitle_ep"]');
         if (epTitle && (!isAppendMode || !epTitle.value.trim())) {{ epTitle.value = downloads.episodeTitle; trigger(epTitle); }}
+
         const resContainer = epClone.querySelector('.rwmb-group-collapsible > .rwmb-input');
         if (!resContainer) return;
         let resClones = getClones(resContainer);
-        let baseResIndex = 0;
-        if (isAppendMode) {{
-            const hasExistingResData = resClones.some(clone => {{
-                const p = clone.querySelector('select[name*="ab_pixel_ep"]');
-                const u = clone.querySelector('input[name*="ab_linkurl_ep"]');
-                return (p && p.value) || (u && u.value.trim());
-            }});
-            baseResIndex = hasExistingResData ? resClones.length : 0;
-        }}
+
+        const findResolutionClone = pixelName => resClones.find(clone => {{
+            const pixel = clone.querySelector('select[name*="ab_pixel_ep"]');
+            return normalizeLower(getSelectValue(pixel)) === normalizeLower(pixelName);
+        }});
+
         for (let r = 0; r < downloads.resolutions.length; r++) {{
             const resData = downloads.resolutions[r];
-            const targetResIdx = baseResIndex + r;
-            while (resClones.length <= targetResIdx) {{ await addClone(resContainer); resClones = getClones(resContainer); }}
-            const resClone = resClones[targetResIdx];
+            let resClone = null;
+
+            if (isAppendMode) {{
+                resClone = findResolutionClone(resData.pixel);
+                if (!resClone) {{
+                    const targetResIdx = resClones.length;
+                    while (resClones.length <= targetResIdx) {{ await addClone(resContainer); resClones = getClones(resContainer); }}
+                    resClone = resClones[targetResIdx];
+                }}
+            }} else {{
+                const targetResIdx = r;
+                while (resClones.length <= targetResIdx) {{ await addClone(resContainer); resClones = getClones(resContainer); }}
+                resClone = resClones[targetResIdx];
+            }}
+
             const pixel = resClone.querySelector('select[name*="ab_pixel_ep"]');
             if (pixel) {{ pixel.value = resData.pixel; trigger(pixel); }}
+
             const linkContainer = resClone.querySelector('.rwmb-group-wrapper:not(.rwmb-group-collapsible) > .rwmb-input');
             if (!linkContainer) continue;
             let linkClones = getClones(linkContainer);
-            let baseLinkIndex = 0;
-            if (isAppendMode) {{
-                const hasExistingLinkData = linkClones.some(clone => {{
-                    const h = clone.querySelector('select[name*="ab_hostingname_ep"]');
-                    const u = clone.querySelector('input[name*="ab_linkurl_ep"]');
-                    return (h && h.value) || (u && u.value.trim());
-                }});
-                baseLinkIndex = hasExistingLinkData ? linkClones.length : 0;
-            }}
+
+            const findLinkCloneByHosting = hostingName => linkClones.find(clone => {{
+                const h = clone.querySelector('select[name*="ab_hostingname_ep"]');
+                return normalizeLower(getSelectValue(h)) === normalizeLower(hostingName);
+            }});
+
             for (let l = 0; l < resData.links.length; l++) {{
                 const linkData = resData.links[l];
-                const targetLinkIdx = baseLinkIndex + l;
-                while (linkClones.length <= targetLinkIdx) {{ await addClone(linkContainer); linkClones = getClones(linkContainer); }}
-                const linkClone = linkClones[targetLinkIdx];
+                let linkClone = null;
+
+                if (isAppendMode) {{
+                    linkClone = findLinkCloneByHosting(linkData.hosting);
+                    if (linkClone) {{
+                        const urlField = linkClone.querySelector('input[name*="ab_linkurl_ep"]');
+                        if (urlField && normalize(urlField.value) !== normalize(linkData.url)) {{
+                            urlField.value = linkData.url; // smart merge: update same resolution+hosting
+                            trigger(urlField);
+                        }}
+                        continue;
+                    }}
+                    const targetLinkIdx = linkClones.length;
+                    while (linkClones.length <= targetLinkIdx) {{ await addClone(linkContainer); linkClones = getClones(linkContainer); }}
+                    linkClone = linkClones[targetLinkIdx];
+                }} else {{
+                    const targetLinkIdx = l;
+                    while (linkClones.length <= targetLinkIdx) {{ await addClone(linkContainer); linkClones = getClones(linkContainer); }}
+                    linkClone = linkClones[targetLinkIdx];
+                }}
+
                 const hosting = linkClone.querySelector('select[name*="ab_hostingname_ep"]');
                 if (hosting) {{ hosting.value = linkData.hosting; trigger(hosting); }}
                 const url = linkClone.querySelector('input[name*="ab_linkurl_ep"]');
@@ -1459,6 +1777,10 @@ inject_custom_css()
 
 if 'generated_scripts' not in st.session_state:
     st.session_state.generated_scripts = {}
+if 'parser_debug_report' not in st.session_state:
+    st.session_state.parser_debug_report = []
+if 'shorten_warnings' not in st.session_state:
+    st.session_state.shorten_warnings = []
 
 # Header
 st.markdown("# DramaStream Quickfill")
@@ -1478,6 +1800,24 @@ with col1:
         index=0,
     )
     fill_mode = "append" if fill_mode_label.startswith("Append") else "replace"
+    parser_debug_enabled = st.checkbox("Parser Debug Mode", value=False, help="Show line-by-line parsing diagnostics after Generate.")
+
+    with st.expander("🧩 Custom Host Rules", expanded=False):
+        custom_download_rules_text = st.text_area(
+            "Download Host Rules (domain=HostingName)",
+            key="custom_download_rules_text",
+            height=90,
+            placeholder="example.com=ExampleHost\ncdn.example.net=ExampleHost",
+        )
+        custom_embed_rules_text = st.text_area(
+            "Embed Host Rules (domain=EmbedName)",
+            key="custom_embed_rules_text",
+            height=90,
+            placeholder="embed.example.com=ExampleEmbed",
+        )
+
+    custom_download_host_rules = parse_custom_host_rules(custom_download_rules_text)
+    custom_embed_host_rules = parse_custom_host_rules(custom_embed_rules_text)
     
     # Shortening settings (provider selectable)
     with st.expander("🔗 Link Shortening", expanded=False):
@@ -1485,7 +1825,7 @@ with col1:
         if shortener_enabled:
             provider_label = st.selectbox(
                 "Provider",
-                options=["ouo.io", "safelinkearn.com", "safelinku.com"],
+                options=["shrinkbixby.com", "ouo.io", "safelinkearn.com", "safelinku.com"],
                 index=0,
                 key="shortener_provider",
             )
@@ -1493,6 +1833,8 @@ with col1:
                 shortener_provider = "safelinkearn"
             elif provider_label.startswith("safelinku"):
                 shortener_provider = "safelinku"
+            elif provider_label.startswith("shrinkbixby"):
+                shortener_provider = "shrinkbixby"
             else:
                 shortener_provider = "ouo"
             if shortener_provider == "ouo":
@@ -1509,15 +1851,24 @@ with col1:
                     type="password",
                     key="safelinkearn_api_token",
                 )
-            else:
+            elif shortener_provider == "safelinku":
                 shortener_api_key = st.text_input(
                     "API Token",
                     value=DEFAULT_SAFELINKU_API_TOKEN,
                     type="password",
                     key="safelinku_api_token",
                 )
-            available_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored', 'Jioupload', 'Filekeeper']
-            detected_hosts = detect_shorten_hosts_from_input(input_text, available_hosts)
+            else:
+                shortener_api_key = st.text_input(
+                    "API Token",
+                    value=DEFAULT_SHRINKBIXBY_API_TOKEN,
+                    type="password",
+                    key="shrinkbixby_api_token",
+                )
+            base_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored', 'Jioupload', 'Filekeeper']
+            custom_hosts = sorted({v for v in custom_download_host_rules.values() if v})
+            available_hosts = sorted(set(base_hosts + custom_hosts))
+            detected_hosts = detect_shorten_hosts_from_input(input_text, available_hosts, custom_download_host_rules)
             auto_hosts = detected_hosts if detected_hosts else ['BuzzHeavier', 'Gofile']
             input_sig = input_text.strip()
             prev_sig = st.session_state.get("_shorten_hosts_input_sig")
@@ -1553,6 +1904,13 @@ with col1:
             # Prepare shortening settings
             shorten_set = set(shorten_hosts) if shortener_enabled else set()
             active_shortener_key = shortener_api_key if shortener_enabled else ""
+            shorten_warnings: List[str] = []
+            parser_report = build_parser_debug_report(
+                input_text,
+                custom_download_host_rules=custom_download_host_rules,
+                custom_embed_host_rules=custom_embed_host_rules,
+            ) if parser_debug_enabled else []
+            st.session_state.parser_debug_report = parser_report
             
             content_types = detect_input_content_types(input_text)
             has_movie = content_types['has_movie']
@@ -1561,9 +1919,27 @@ with col1:
             series_items: Dict[str, Episode] = {}
 
             if has_movie:
-                movie_items = parse_movie_input(input_text, shorten_set, active_shortener_key, shortener_provider)
+                movie_items = parse_movie_input(
+                    input_text,
+                    shorten_set,
+                    active_shortener_key,
+                    shortener_provider,
+                    custom_download_host_rules,
+                    custom_embed_host_rules,
+                    shorten_warnings,
+                )
             if has_series or (not has_movie and not has_series):
-                series_items = parse_input(input_text, shorten_set, active_shortener_key, shortener_provider)
+                series_items = parse_input(
+                    input_text,
+                    shorten_set,
+                    active_shortener_key,
+                    shortener_provider,
+                    custom_download_host_rules,
+                    custom_embed_host_rules,
+                    shorten_warnings,
+                )
+
+            st.session_state.shorten_warnings = sorted(set(shorten_warnings))
 
             if series_name:
                 for ep in movie_items.values():
@@ -1618,6 +1994,8 @@ with col1:
             else:
                 st.error("No episodes/movies detected")
         else:
+            st.session_state.parser_debug_report = []
+            st.session_state.shorten_warnings = []
             st.warning("Enter episode data first")
 
 with col2:
@@ -1684,6 +2062,15 @@ with col2:
             st.download_button("Download All (ZIP)", zip_buf.getvalue(), "quickfill.zip", "application/zip", use_container_width=True)
     else:
         st.info("Generate scripts to see output")
+
+if st.session_state.shorten_warnings:
+    with st.expander(f"⚠ Shortener Warnings ({len(st.session_state.shorten_warnings)})", expanded=False):
+        for msg in st.session_state.shorten_warnings:
+            st.caption(f"- {msg}")
+
+if st.session_state.parser_debug_report:
+    with st.expander(f"🧪 Parser Debug ({len(st.session_state.parser_debug_report)} lines)", expanded=False):
+        st.code('\n'.join(st.session_state.parser_debug_report), language='text')
 
 with st.expander("Help"):
     st.markdown("""

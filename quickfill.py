@@ -370,6 +370,7 @@ class Episode:
 
 # Embed hostname configuration - priority order (first = highest priority)
 EMBED_HOST_CONFIG = [
+    {'pattern': 'bysetayico.com', 'name': 'FileMoon'},
     {'pattern': 'nuna.upns.pro', 'name': 'Upnshare'},
     {'pattern': 'short.icu', 'name': 'HydraX'},
     {'pattern': 'ok.ru', 'name': 'OKru'},
@@ -378,7 +379,6 @@ EMBED_HOST_CONFIG = [
     {'pattern': 'hqq.to', 'name': 'LuluTV'},
     {'pattern': 'nuna.p2pstream.vip', 'name': 'StreamP2P'},
     {'pattern': 'veev.to', 'name': 'Veev'},
-    {'pattern': 'bysetayico.com', 'name': 'FileMoon'},
 ]
 
 DEFAULT_DOWNLOAD_HOST_MAP = {
@@ -1531,9 +1531,22 @@ def parse_input(
 def generate_quickfill_js(episode: Episode, subbed: str = "Sub", fill_mode: str = "replace") -> str:
     embeds_js = ',\n'.join([f"""        {{ hostname: "{e.hostname}", embed: '{e.embed.replace("'", "\\'")}' }}""" for e in episode.embeds])
     
+    hosting_priority = {
+        "Terabox": 0,
+        "BuzzHeavier": 1,
+        "Gofile": 2,
+        "FileMoon": 3,
+        "VidHide": 4,
+        "Mirrored": 5,
+    }
+
     resolutions_js = []
     for res in sorted(episode.downloads.keys(), key=lambda x: int(re.search(r'\d+', x).group())):
-        links_js = ',\n'.join([f'                    {{ hosting: "{l.hosting}", url: "{l.url}" }}' for l in episode.downloads[res]])
+        sorted_links = sorted(
+            episode.downloads[res],
+            key=lambda l: (hosting_priority.get(l.hosting, 999), l.hosting.lower(), l.url.lower())
+        )
+        links_js = ',\n'.join([f'                    {{ hosting: "{l.hosting}", url: "{l.url}" }}' for l in sorted_links])
         resolutions_js.append(f'            {{ pixel: "{res}", links: [\n{links_js}\n                ] }}')
     resolutions_str = ',\n'.join(resolutions_js)
     

@@ -22,7 +22,6 @@ import io
 DEFAULT_OUO_API_KEY = "8pHuHRq5"
 DEFAULT_SAFELINKEARN_API_TOKEN = "b7e08e60216a7e4af740e7cd46e348a7e6fcea17"
 DEFAULT_SAFELINKU_API_TOKEN = "3e3844f4c831f2bc46cfdd15e8d8c370b2c39c2b"
-DEFAULT_SHRINKBIXBY_API_TOKEN = "125d33f7a072b90189af1b6c3b04d7924a279c17"
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
@@ -87,31 +86,6 @@ def shorten_url_cached(provider: str, api_key: str, url: str) -> str:
                 if short:
                     return short
                 # Fallback if provider still returns JSON despite format=text
-                if body.startswith("{") and body.endswith("}"):
-                    try:
-                        data = response.json()
-                    except Exception:
-                        try:
-                            data = json.loads(body)
-                        except Exception:
-                            data = {}
-                    short = normalize_shortened(str(data.get("shortenedUrl", "")))
-                    if short:
-                        return short
-            return url
-
-        if provider == "shrinkbixby":
-            response = requests.get(
-                "https://shrinkbixby.com/api",
-                params={"api": api_key, "url": url, "format": "text"},
-                timeout=10,
-            )
-            if response.status_code == 200:
-                time.sleep(0.3)  # Rate limiting
-                body = response.text.strip()
-                short = normalize_shortened(body)
-                if short:
-                    return short
                 if body.startswith("{") and body.endswith("}"):
                     try:
                         data = response.json()
@@ -424,6 +398,7 @@ DEFAULT_DOWNLOAD_HOST_MAP = {
     'streamtape': 'StreamTape',
     'jiouploads': 'Jioupload',
     'filekeeper': 'Filekeeper',
+    'minochinos': 'VidHide',
 }
 
 DEFAULT_EMBED_HOST_MAP = {
@@ -759,6 +734,14 @@ def parse_custom_host_rules(raw_text: str) -> Dict[str, str]:
         if pattern and host_name:
             rules[pattern] = host_name
     return rules
+
+
+def split_url_and_label(line: str) -> (str, str):
+    """Split 'URL [optional label]' line into URL and trailing label text."""
+    match = re.match(r'^(https?://\S+)(?:\s+(.+))?$', line.strip())
+    if not match:
+        return line.strip(), ""
+    return match.group(1).strip(), (match.group(2) or "").strip()
 
 
 def detect_hosting(url: str, custom_host_rules: Optional[Dict[str, str]] = None) -> str:
@@ -1361,20 +1344,24 @@ def parse_input(
             
             # Direct URL - inherit current resolution if no resolution in URL
             elif line.startswith('http'):
-                url_info = parse_url_path(line)
-                hosting = detect_hosting(line, custom_download_host_rules)
+                raw_url, trailing_label = split_url_and_label(line)
+                url_info = parse_url_path(raw_url)
+                hosting = detect_hosting(raw_url, custom_download_host_rules)
                 
                 # Apply shortening if enabled
-                url = line
+                url = raw_url
                 url = maybe_shorten_url(
-                    line,
+                    raw_url,
                     hosting,
                     shorten_hosts,
                     api_key,
                     shortener_provider,
                     shorten_warnings,
-                    f"[URL line {line[:42]}]",
+                    f"[URL line {raw_url[:42]}]",
                 )
+
+                label_info = parse_filename(trailing_label) if trailing_label else None
+                label_res = extract_resolution(trailing_label) if trailing_label else None
                 
                 if url_info:
                     # URL has explicit resolution info
@@ -1395,9 +1382,33 @@ def parse_input(
                     if res not in resolution_links[key]:
                         resolution_links[key][res] = []
                     resolution_links[key][res].append((hosting, url))
+                elif label_info:
+                    # URL does not encode episode metadata, fallback to trailing label.
+                    ep_num = label_info['episode']
+                    res = label_res or '720p'
+                    series_name = label_info['series_name']
+
+                    key = find_episode_key(episodes, series_name, ep_num)
+                    if not key:
+                        key = f"{series_name}_{ep_num}"
+                        episodes[key] = Episode(
+                            number=ep_num,
+                            series_name=series_name,
+                            year=label_info.get('year', ''),
+                            season=label_info.get('season', ''),
+                        )
+
+                    current_key = key
+                    current_resolution = res
+
+                    if key not in resolution_links:
+                        resolution_links[key] = {}
+                    if res not in resolution_links[key]:
+                        resolution_links[key][res] = []
+                    resolution_links[key][res].append((hosting, url))
                 elif hosting == 'Mirrored':
                     # Mirrored URLs carry episode metadata in filename; parse in legacy block below.
-                    download_urls.append(line)
+                    download_urls.append(raw_url)
                 elif current_key and current_resolution:
                     # Use current context from previous BBCode line
                     if current_key not in resolution_links:
@@ -1406,7 +1417,7 @@ def parse_input(
                         resolution_links[current_key][current_resolution] = []
                     resolution_links[current_key][current_resolution].append((hosting, url))
                 else:
-                    download_urls.append(line)
+                    download_urls.append(raw_url)
             
             # filename - URL
             elif ' - http' in line:
@@ -1828,16 +1839,14 @@ with col1:
         if shortener_enabled:
             provider_label = st.selectbox(
                 "Provider",
-                options=["shrinkbixby.com", "ouo.io", "safelinkearn.com", "safelinku.com"],
-                index=0,
+                options=["ouo.io", "safelinkearn.com", "safelinku.com"],
+                index=2,
                 key="shortener_provider",
             )
             if provider_label.startswith("safelinkearn"):
                 shortener_provider = "safelinkearn"
             elif provider_label.startswith("safelinku"):
                 shortener_provider = "safelinku"
-            elif provider_label.startswith("shrinkbixby"):
-                shortener_provider = "shrinkbixby"
             else:
                 shortener_provider = "ouo"
             if shortener_provider == "ouo":
@@ -1861,18 +1870,14 @@ with col1:
                     type="password",
                     key="safelinku_api_token",
                 )
-            else:
-                shortener_api_key = st.text_input(
-                    "API Token",
-                    value=DEFAULT_SHRINKBIXBY_API_TOKEN,
-                    type="password",
-                    key="shrinkbixby_api_token",
-                )
-            base_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored', 'Jioupload', 'Filekeeper']
+            base_hosts = ['BuzzHeavier', 'Gofile', 'Upfiles', 'Terabox', 'FileMoon', 'Mirrored', 'Jioupload', 'Filekeeper', 'VidHide']
+            excluded_auto_hosts = {'Mirrored', 'Terabox', 'FileMoon', 'VidHide'}
             custom_hosts = sorted({v for v in custom_download_host_rules.values() if v})
             available_hosts = sorted(set(base_hosts + custom_hosts))
             detected_hosts = detect_shorten_hosts_from_input(input_text, available_hosts, custom_download_host_rules)
-            auto_hosts = detected_hosts if detected_hosts else ['BuzzHeavier', 'Gofile']
+            auto_hosts = [h for h in detected_hosts if h not in excluded_auto_hosts]
+            if not auto_hosts:
+                auto_hosts = ['BuzzHeavier', 'Gofile']
             input_sig = input_text.strip()
             prev_sig = st.session_state.get("_shorten_hosts_input_sig")
             prev_auto = st.session_state.get("_shorten_hosts_auto", [])
@@ -1894,6 +1899,7 @@ with col1:
             )
             if detected_hosts:
                 st.caption(f"Auto-detected hosts in input: {', '.join(detected_hosts)}")
+                st.caption("Auto-select excludes: Mirrored, Terabox, FileMoon, VidHide (still selectable manually).")
             else:
                 st.caption("No host detected from input yet (fallback default: BuzzHeavier, Gofile).")
             st.caption("Shortened links are cached for 1 hour")

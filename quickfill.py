@@ -1032,7 +1032,17 @@ def parse_movie_input(
 
 def normalize_series_name(name: str) -> str:
     """Normalize series name for comparison"""
-    return name.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ').strip()
+    cleaned = name.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
+    cleaned = re.sub(r'[\(\)\[\],:;\'"`!?]+', ' ', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+
+def strip_year_tokens(name: str) -> str:
+    """Remove standalone year tokens to improve fuzzy matching."""
+    cleaned = re.sub(r'\b(?:19|20)\d{2}\b', ' ', name)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
 
 
 def find_episode_key(episodes: Dict[str, Episode], series_name: str, ep_num: str) -> Optional[str]:
@@ -1044,11 +1054,20 @@ def find_episode_key(episodes: Dict[str, Episode], series_name: str, ep_num: str
     
     # Try normalized match
     normalized_input = normalize_series_name(series_name)
+    normalized_input_no_year = strip_year_tokens(normalized_input)
+    ep_input = ep_num.lstrip('0') or ep_num
     for key, ep in episodes.items():
-        if ep.number == ep_num:
+        ep_stored = ep.number.lstrip('0') or ep.number
+        if ep_stored == ep_input:
             normalized_stored = normalize_series_name(ep.series_name)
+            normalized_stored_no_year = strip_year_tokens(normalized_stored)
             # Check if one contains the other (partial match)
-            if normalized_input in normalized_stored or normalized_stored in normalized_input:
+            if (
+                normalized_input in normalized_stored or
+                normalized_stored in normalized_input or
+                normalized_input_no_year in normalized_stored_no_year or
+                normalized_stored_no_year in normalized_input_no_year
+            ):
                 return key
     
     return None

@@ -802,6 +802,116 @@ def parse_bbcode(line: str) -> Optional[Dict]:
     return None
 
 
+def adapt_input_format(text: str) -> str:
+    """
+    Adapt new/plain input variants into legacy-compatible format without
+    changing existing supported formats.
+    """
+    lines = text.splitlines()
+    if not lines:
+        return text
+
+    def is_resolution_line(s: str) -> bool:
+        return bool(re.fullmatch(r'(360|480|540|720|1080|2160)p', s.strip(), re.IGNORECASE))
+
+    def is_episode_header_line(s: str) -> bool:
+        t = s.strip()
+        if not t or t.startswith('http') or t.startswith('[') or t.startswith('<iframe'):
+            return False
+        if is_resolution_line(t) or t.lower() == 'download link' or '.mp4' in t.lower():
+            return False
+        return bool(re.search(r'(?<![A-Za-z0-9])E\d{1,4}$', t, re.IGNORECASE))
+
+    def to_tagged_filename(name: str) -> str:
+        n = name.strip()
+        if n.startswith('['):
+            return n
+        return f"[LayarAsia] {n}"
+
+    # Split embed/download section
+    marker_idx = -1
+    for i, raw in enumerate(lines):
+        if raw.strip().lower() == 'download link':
+            marker_idx = i
+            break
+    embed_lines = lines if marker_idx == -1 else lines[:marker_idx]
+    download_lines = [] if marker_idx == -1 else lines[marker_idx + 1:]
+
+    adapted_embed: List[str] = []
+    for raw in embed_lines:
+        s = raw.strip()
+        if not s:
+            adapted_embed.append(raw)
+            continue
+
+        # Convert: URL - filename.mp4  --> [url=URL][LayarAsia] filename.mp4[/url]
+        m_url_file = re.match(r'^(https?://\S+)\s*-\s*(.+?\.mp4)\s*$', s, re.IGNORECASE)
+        if m_url_file:
+            url = m_url_file.group(1).strip()
+            fname = to_tagged_filename(m_url_file.group(2).strip())
+            adapted_embed.append(f"[url={url}]{fname}[/url]")
+            continue
+
+        # Convert: filename.mp4|<iframe...> --> [LayarAsia] filename.mp4|<iframe...>
+        m_file_iframe = re.match(r'^([^|\[]+?\.mp4)\s*\|\s*(<iframe.+)$', s, re.IGNORECASE)
+        if m_file_iframe:
+            fname = to_tagged_filename(m_file_iframe.group(1).strip())
+            iframe = m_file_iframe.group(2).strip()
+            adapted_embed.append(f"{fname}|{iframe}")
+            continue
+
+        # Convert bare filename header to tagged format
+        if re.match(r'^[^\[]+?\.mp4$', s, re.IGNORECASE):
+            adapted_embed.append(to_tagged_filename(s))
+            continue
+
+        adapted_embed.append(raw)
+
+    adapted_download: List[str] = []
+    current_episode = ""
+    current_resolution = ""
+    for raw in download_lines:
+        s = raw.strip()
+        if not s:
+            adapted_download.append(raw)
+            continue
+
+        # Keep already-supported formats untouched
+        if s.startswith('[url='):
+            adapted_download.append(raw)
+            continue
+
+        # Detect block-style episode header:
+        # Yumi's.Cell.2021.E01
+        if is_episode_header_line(s):
+            current_episode = s
+            current_resolution = ""
+            adapted_download.append(raw)
+            continue
+
+        # Detect block-style resolution line:
+        # 1080p
+        if is_resolution_line(s):
+            current_resolution = s.lower()
+            adapted_download.append(raw)
+            continue
+
+        # Convert block-style URL line into BBCode filename line for parser stability
+        if s.startswith('http://') or s.startswith('https://'):
+            if current_episode and current_resolution:
+                filename = f"{current_episode}.{current_resolution}.mp4"
+                adapted_download.append(f"[url={s}][LayarAsia] {filename}[/url]")
+            else:
+                adapted_download.append(raw)
+            continue
+
+        adapted_download.append(raw)
+
+    if marker_idx == -1:
+        return '\n'.join(adapted_embed)
+    return '\n'.join(adapted_embed + [lines[marker_idx]] + adapted_download)
+
+
 def detect_embed_host_from_url(url: str, custom_embed_rules: Optional[Dict[str, str]] = None) -> str:
     """Detect embed hostname dari URL"""
     url_lower = url.lower()
@@ -1942,18 +2052,19 @@ with col1:
     
     if st.button("Generate", type="primary", use_container_width=True):
         if input_text.strip():
+            adapted_input_text = adapt_input_format(input_text)
             # Prepare shortening settings
             shorten_set = set(shorten_hosts) if shortener_enabled else set()
             active_shortener_key = shortener_api_key if shortener_enabled else ""
             shorten_warnings: List[str] = []
             parser_report = build_parser_debug_report(
-                input_text,
+                adapted_input_text,
                 custom_download_host_rules=custom_download_host_rules,
                 custom_embed_host_rules=custom_embed_host_rules,
             ) if parser_debug_enabled else []
             st.session_state.parser_debug_report = parser_report
             
-            content_types = detect_input_content_types(input_text)
+            content_types = detect_input_content_types(adapted_input_text)
             has_movie = content_types['has_movie']
             has_series = content_types['has_series']
             movie_items: Dict[str, Episode] = {}
@@ -1961,7 +2072,7 @@ with col1:
 
             if has_movie:
                 movie_items = parse_movie_input(
-                    input_text,
+                    adapted_input_text,
                     shorten_set,
                     active_shortener_key,
                     shortener_provider,
@@ -1971,7 +2082,7 @@ with col1:
                 )
             if has_series or (not has_movie and not has_series):
                 series_items = parse_input(
-                    input_text,
+                    adapted_input_text,
                     shorten_set,
                     active_shortener_key,
                     shortener_provider,

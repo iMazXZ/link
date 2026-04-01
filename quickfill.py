@@ -1030,6 +1030,18 @@ def parse_movie_input(
                 embed_src = to_embed_src(bbcode["url"])
                 iframe = f'<iframe src="{embed_src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                 movies[key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
+                # If FileMoon embed URL is provided, also derive /d/ link with resolution from filename context.
+                if hostname == 'FileMoon':
+                    d_url = derive_filemoon_download_url(bbcode['url'])
+                    if d_url:
+                        res = movie_info.get('resolution', '720p')
+                        if res not in movies[key].downloads:
+                            movies[key].downloads[res] = []
+                        exists = any(dl.hosting == 'FileMoon' and dl.url == d_url for dl in movies[key].downloads[res])
+                        if not exists:
+                            movies[key].downloads[res].append(
+                                DownloadLink(hosting='FileMoon', url=d_url, resolution=res)
+                            )
     
     # Phase 2: Collect standalone iframes and bysetayico embeds
     standalone_iframes = []
@@ -1319,6 +1331,21 @@ def parse_input(
                         embed_src = to_embed_src(bbcode["url"])
                         iframe = f'<iframe src="{embed_src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                         episodes[unique_key].embeds.append(EmbedData(hostname=hostname, embed=iframe))
+                        # If FileMoon embed URL is provided, also derive /d/ link with resolution from filename context.
+                        if hostname == 'FileMoon':
+                            d_url = derive_filemoon_download_url(bbcode['url'])
+                            if d_url:
+                                res = extract_resolution(bbcode['filename'])
+                                if res not in episodes[unique_key].downloads:
+                                    episodes[unique_key].downloads[res] = []
+                                exists = any(
+                                    dl.hosting == 'FileMoon' and dl.url == d_url
+                                    for dl in episodes[unique_key].downloads[res]
+                                )
+                                if not exists:
+                                    episodes[unique_key].downloads[res].append(
+                                        DownloadLink(hosting='FileMoon', url=d_url, resolution=res)
+                                    )
                 continue
         
         # Regular filename header (no URL)
@@ -1371,6 +1398,20 @@ def parse_input(
                         )
                         if not exists:
                             episodes[key].embeds.append(EmbedData(hostname=hostname, embed=embed_code))
+                        if hostname == 'FileMoon':
+                            d_url = derive_filemoon_download_url(bbcode['url'])
+                            if d_url:
+                                res = extract_resolution(bbcode['filename'])
+                                if res not in episodes[key].downloads:
+                                    episodes[key].downloads[res] = []
+                                d_exists = any(
+                                    dl.hosting == 'FileMoon' and dl.url == d_url
+                                    for dl in episodes[key].downloads[res]
+                                )
+                                if not d_exists:
+                                    episodes[key].downloads[res].append(
+                                        DownloadLink(hosting='FileMoon', url=d_url, resolution=res)
+                                    )
             i += 1
             continue
         if line.startswith('[') and '|' not in line and ' - <iframe' not in line:
@@ -1746,6 +1787,9 @@ def parse_input(
                     continue
                 res = info['resolution']
             else:
+                # If /d/ URL doesn't carry resolution token, skip auto-derive to avoid wrong default (e.g. forced 720p).
+                if not re.search(r'(\d{3,4}p)', d_url, re.IGNORECASE):
+                    continue
                 res = extract_resolution(d_url)
 
             if res not in ep.downloads:

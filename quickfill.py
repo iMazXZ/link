@@ -371,6 +371,7 @@ class Episode:
 # Embed hostname configuration - priority order (first = highest priority)
 EMBED_HOST_CONFIG = [
     {'pattern': 'bysetayico.com', 'name': 'FileMoon'},
+    {'pattern': 'byselapuix.com', 'name': 'FileMoon'},
     {'pattern': 'nuna.upns.pro', 'name': 'Upnshare'},
     {'pattern': 'short.icu', 'name': 'HydraX'},
     {'pattern': 'ok.ru', 'name': 'OKru'},
@@ -394,6 +395,7 @@ DEFAULT_DOWNLOAD_HOST_MAP = {
     'vikingfile': 'Vikingfile',
     'veev.to': 'Veev',
     'bysetayico': 'FileMoon',
+    'byselapuix': 'FileMoon',
     'doodstream': 'Doodstream',
     'streamtape': 'StreamTape',
     'jiouploads': 'Jioupload',
@@ -410,6 +412,7 @@ DEFAULT_EMBED_HOST_MAP = {
     'p2pstream': 'StreamP2P',
     'upns.pro': 'Upnshare',
     'bysetayico': 'FileMoon',
+    'byselapuix': 'FileMoon',
     'hqq.to': 'LuluTV',
     'veev.to': 'Veev',
 }
@@ -943,6 +946,29 @@ def to_embed_src(url: str) -> str:
     return url
 
 
+def derive_filemoon_download_url(iframe_or_url: str) -> Optional[str]:
+    """
+    Convert known FileMoon-style embed URL (.../e/...) to download URL (.../d/...).
+    Only for supported domains to avoid collisions with other formats.
+    """
+    src = iframe_or_url.strip()
+    if '<iframe' in src.lower():
+        src_match = re.search(r'src=["\']([^"\']+)["\']', src, re.IGNORECASE)
+        if not src_match:
+            return None
+        src = src_match.group(1).strip()
+
+    lower_src = src.lower()
+    if not (('bysetayico.com' in lower_src) or ('byselapuix.com' in lower_src)):
+        return None
+
+    # Transform first '/e/' segment into '/d/' only when clearly present.
+    converted = re.sub(r'(^https?://[^/]+)/e/', r'\1/d/', src, count=1, flags=re.IGNORECASE)
+    if converted == src:
+        return None
+    return converted
+
+
 def parse_movie_input(
     text: str,
     shorten_hosts: Set[str] = None,
@@ -1048,6 +1074,22 @@ def parse_movie_input(
     # Sort embeds by priority
     for key in movies:
         movies[key].embeds.sort(key=lambda e: get_embed_priority(e.embed, custom_embed_host_rules))
+
+    # Derive FileMoon download links from embed links when explicit /d/ links are absent.
+    for key, movie in movies.items():
+        for e in movie.embeds:
+            d_url = derive_filemoon_download_url(e.embed)
+            if not d_url:
+                continue
+            res = extract_resolution(d_url)
+            if res not in movie.downloads:
+                movie.downloads[res] = []
+            exists = any(
+                dl.hosting == 'FileMoon' and dl.url == d_url
+                for dl in movie.downloads[res]
+            )
+            if not exists:
+                movie.downloads[res].append(DownloadLink(hosting='FileMoon', url=d_url, resolution=res))
     
     # Phase 5: Parse downloads
     if download_section_start > 0:
@@ -1301,6 +1343,36 @@ def parse_input(
     i = 0
     while i < len(embed_lines):
         line = embed_lines[i].strip()
+        if line.startswith('[url='):
+            # Handle BBCode embeds even when they appear after iframe blocks.
+            bbcode = parse_bbcode(line)
+            if bbcode:
+                info = parse_filename(bbcode['filename'])
+                if info:
+                    key = find_episode_key(episodes, info['series_name'], info['episode'])
+                    if not key:
+                        key = f"{info['series_name']}_{info['episode']}"
+                        episodes[key] = Episode(
+                            number=info['episode'],
+                            series_name=info['series_name'],
+                            year=info.get('year', ''),
+                            season=info.get('season', ''),
+                        )
+                    hostname = detect_embed_host_from_url(bbcode['url'], custom_embed_host_rules)
+                    if hostname != 'Other':
+                        embed_src = to_embed_src(bbcode["url"])
+                        embed_code = f'<iframe src="{embed_src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
+                        src_match = re.search(r'src=["\']([^"\']+)["\']', embed_code, re.IGNORECASE)
+                        target_src = src_match.group(1).lower() if src_match else ""
+                        exists = any(
+                            re.search(r'src=["\']([^"\']+)["\']', e.embed, re.IGNORECASE) and
+                            re.search(r'src=["\']([^"\']+)["\']', e.embed, re.IGNORECASE).group(1).lower() == target_src
+                            for e in episodes[key].embeds
+                        )
+                        if not exists:
+                            episodes[key].embeds.append(EmbedData(hostname=hostname, embed=embed_code))
+            i += 1
+            continue
         if line.startswith('[') and '|' not in line and ' - <iframe' not in line:
             info = parse_filename(line)
             if info and i + 1 < len(embed_lines):
@@ -1658,6 +1730,32 @@ def parse_input(
     # Sort embeds by priority
     for ep in episodes.values():
         ep.embeds.sort(key=lambda x: get_embed_priority(x.embed, custom_embed_host_rules))
+
+    # Derive FileMoon download links from embed links when explicit /d/ links are absent.
+    for key, ep in episodes.items():
+        for e in ep.embeds:
+            d_url = derive_filemoon_download_url(e.embed)
+            if not d_url:
+                continue
+
+            info = parse_url_path(d_url)
+            if info:
+                ep_num_info = info['episode'].lstrip('0') or info['episode']
+                ep_num = ep.number.lstrip('0') or ep.number
+                if ep_num_info != ep_num:
+                    continue
+                res = info['resolution']
+            else:
+                res = extract_resolution(d_url)
+
+            if res not in ep.downloads:
+                ep.downloads[res] = []
+            exists = any(
+                dl.hosting == 'FileMoon' and dl.url == d_url
+                for dl in ep.downloads[res]
+            )
+            if not exists:
+                ep.downloads[res].append(DownloadLink(hosting='FileMoon', url=d_url, resolution=res))
     
     return episodes
 

@@ -477,6 +477,11 @@ def extract_resolution(text: str) -> str:
 
 def parse_movie_filename(filename: str) -> Optional[Dict]:
     """Parse movie filename: [tag] Title.Year.Res.ext -> returns title, year, resolution"""
+    # Guard: if filename clearly has episode token (E11 / S01E02), treat as series, not movie.
+    if re.search(r'(^|[.\s_-])S\d{1,2}E\d{1,4}($|[.\s_-])', filename, re.IGNORECASE) or \
+       re.search(r'(^|[.\s_-])E\d{1,4}($|[.\s_-])', filename, re.IGNORECASE):
+        return None
+
     # Pattern 1: [tag] Title.Year.<source>.Resolution.ext (dots)
     pattern1 = r'\[.*?\]\s*(.+?)\.(\d{4})(?:\.[A-Za-z0-9-]+)*\.(\d{3,4})p'
     match = re.search(pattern1, filename, re.IGNORECASE)

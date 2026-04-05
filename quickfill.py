@@ -1007,7 +1007,8 @@ def parse_movie_input(
         if not line:
             continue
         if line.startswith('<iframe'):
-            break
+            # Keep scanning: some inputs interleave "filename" then iframe per line block.
+            continue
         
         movie_info = None
         bbcode = None
@@ -1298,7 +1299,7 @@ def parse_input(
     embed_lines = [] if force_download_only else (lines[:download_section_start] if download_section_start > 0 else lines)
     embed_server_count = {}
     standalone_embeds = []
-    veev_embeds = {}  # ep_num -> {resolution_num: iframe_code}
+    veev_embeds = {}  # episode_key -> {resolution_num: iframe_code}
     url_embeds = {}   # ep_num -> {resolution_num: iframe_code} for URL-parsed embeds
     
     # Collect series headers (consecutive filenames at start, before iframes) for positional mapping
@@ -1428,10 +1429,17 @@ def parse_input(
                 # Skip if episode is in series_header_list (will be assigned positionally)
                 if next_line.startswith('<iframe') and info['episode'] not in series_header_episodes:
                     ep_num = info['episode']
-                    if ep_num not in episodes:
-                        episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
+                    key = find_episode_key(episodes, info['series_name'], ep_num)
+                    if not key:
+                        key = f"{info['series_name']}_{ep_num}"
+                        episodes[key] = Episode(
+                            number=ep_num,
+                            series_name=info['series_name'],
+                            year=info.get('year', ''),
+                            season=info.get('season', ''),
+                        )
                     hostname = get_embed_hostname(next_line, custom_embed_host_rules)
-                    episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=next_line))
+                    episodes[key].embeds.append(EmbedData(hostname=hostname, embed=next_line))
                     i += 2
                     continue
         elif line.startswith('<iframe'):
@@ -1462,10 +1470,9 @@ def parse_input(
             else:
                 standalone_embeds.append(line)
         elif '|' in line and '<iframe' in line:
-            parts = line.split('|', 1)
-            iframe_part = parts[1].strip()
-            if iframe_part.startswith('<iframe'):
-                standalone_embeds.append(iframe_part)
+            # Episode-scoped "filename|<iframe...>" lines are handled in the
+            # dedicated pass below to avoid positional mis-assignment.
+            pass
         # Handle "filename - <iframe..." format
         elif ' - <iframe' in line:
             parts = line.split(' - <iframe', 1)
@@ -1474,28 +1481,35 @@ def parse_input(
             info = parse_filename(filename)
             if info:
                 ep_num = info['episode']
-                if ep_num not in episodes:
-                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
+                key = find_episode_key(episodes, info['series_name'], ep_num)
+                if not key:
+                    key = f"{info['series_name']}_{ep_num}"
+                    episodes[key] = Episode(
+                        number=ep_num,
+                        series_name=info['series_name'],
+                        year=info.get('year', ''),
+                        season=info.get('season', ''),
+                    )
                 # For veev embeds, track by resolution and only keep highest
                 if 'veev.to' in iframe_code:
                     res = extract_resolution(filename)
                     res_num = int(re.search(r'\d+', res).group())
-                    if ep_num not in veev_embeds:
-                        veev_embeds[ep_num] = {}
-                    if res_num not in veev_embeds[ep_num] or res_num > max(veev_embeds[ep_num].keys(), default=0):
-                        veev_embeds[ep_num][res_num] = iframe_code
+                    if key not in veev_embeds:
+                        veev_embeds[key] = {}
+                    if res_num not in veev_embeds[key] or res_num > max(veev_embeds[key].keys(), default=0):
+                        veev_embeds[key][res_num] = iframe_code
                 else:
                     hostname = get_embed_hostname(iframe_code, custom_embed_host_rules)
-                    episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
+                    episodes[key].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
         i += 1
     
     # Add highest resolution veev embeds
-    for ep_num, res_dict in veev_embeds.items():
-        if res_dict and ep_num in episodes:
+    for key, res_dict in veev_embeds.items():
+        if res_dict and key in episodes:
             highest_res = max(res_dict.keys())
             iframe_code = res_dict[highest_res]
             hostname = get_embed_hostname(iframe_code, custom_embed_host_rules)
-            episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
+            episodes[key].embeds.append(EmbedData(hostname=hostname, embed=iframe_code))
     
     # Add highest resolution URL-parsed embeds
     for key, res_dict in url_embeds.items():
@@ -1524,8 +1538,15 @@ def parse_input(
             url_or_iframe = parts[1].strip()
             if info:
                 ep_num = info['episode']
-                if ep_num not in episodes:
-                    episodes[ep_num] = Episode(number=ep_num, series_name=info['series_name'], year=info.get('year', ''), season=info.get('season', ''))
+                key = find_episode_key(episodes, info['series_name'], ep_num)
+                if not key:
+                    key = f"{info['series_name']}_{ep_num}"
+                    episodes[key] = Episode(
+                        number=ep_num,
+                        series_name=info['series_name'],
+                        year=info.get('year', ''),
+                        season=info.get('season', ''),
+                    )
                 # Check if it's already an iframe or just a URL
                 if url_or_iframe.startswith('<iframe'):
                     embed_code = url_or_iframe
@@ -1534,7 +1555,7 @@ def parse_input(
                     embed_code = f'<iframe src="{embed_src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
                 hostname = get_embed_hostname(embed_code, custom_embed_host_rules)
                 if hostname != 'Other':
-                    episodes[ep_num].embeds.append(EmbedData(hostname=hostname, embed=embed_code))
+                    episodes[key].embeds.append(EmbedData(hostname=hostname, embed=embed_code))
     
     if force_download_only or download_section_start > 0:
         download_lines = lines if force_download_only else lines[download_section_start + 1:]

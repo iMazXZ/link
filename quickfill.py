@@ -708,7 +708,7 @@ def parse_url_path(url: str) -> Optional[Dict]:
         season = None
         episode = ep_match.group(1).zfill(2)
     
-    res_match = re.search(r'[-._](360|480|720|1080|2160)p?(?:[-._]|$)', path)
+    res_match = re.search(r'[-._](360|480|540|720|1080|2160)p?(?:[-._]|$)', path)
     resolution = res_match.group(1) + 'p' if res_match else '720p'
     series_match = re.search(r'^[^/]*?[-._](.+?)(?:[-._]\d{4})?(?:[-._]s\d+)?e\d+', path)
     series_name = series_match.group(1).replace('-', ' ').replace('.', ' ').replace('_', ' ').title() if series_match else 'Unknown'

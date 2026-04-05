@@ -828,7 +828,14 @@ def adapt_input_format(text: str) -> str:
             return False
         if is_resolution_line(t) or t.lower() == 'download link' or '.mp4' in t.lower():
             return False
-        return bool(re.search(r'(?<![A-Za-z0-9])E\d{1,4}$', t, re.IGNORECASE))
+        # Accept both "...E12" and "...S02E12" headers used in block-style download lists.
+        return bool(
+            re.search(
+                r'(?:S\d{1,2}E\d{1,4}|(?:^|[.\s_-])E\d{1,4})$',
+                t,
+                re.IGNORECASE,
+            )
+        )
 
     def to_tagged_filename(name: str) -> str:
         n = name.strip()

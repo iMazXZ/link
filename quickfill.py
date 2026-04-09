@@ -1309,6 +1309,11 @@ def parse_movie_input(
                         )
                 if host_idx >= len(host_links):
                     break
+
+    # Re-sort embeds at the end because mixed-format movie inputs can append
+    # additional embeds during download-phase parsing.
+    for key in movies:
+        movies[key].embeds.sort(key=lambda e: get_embed_priority(e.embed, custom_embed_host_rules))
     
     return movies
 

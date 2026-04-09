@@ -837,6 +837,18 @@ def adapt_input_format(text: str) -> str:
             )
         )
 
+    def is_movie_download_header_line(s: str) -> bool:
+        t = s.strip()
+        if not t or t.startswith('http') or t.startswith('[') or t.startswith('<iframe'):
+            return False
+        if is_resolution_line(t) or t.lower() == 'download link' or '.mp4' in t.lower():
+            return False
+        # Movie batch header example: NIA.2025.WEB-DL
+        # Require year token and ensure it is not an episode token.
+        if re.search(r'(?:^|[.\s_-])(?:S\d{1,2}E\d{1,4}|E\d{1,4})(?:$|[.\s_-])', t, re.IGNORECASE):
+            return False
+        return bool(re.search(r'(?:^|[.\s_-])(19|20)\d{2}(?:$|[.\s_-])', t))
+
     def to_tagged_filename(name: str) -> str:
         n = name.strip()
         if n.startswith('['):
@@ -883,7 +895,7 @@ def adapt_input_format(text: str) -> str:
         adapted_embed.append(raw)
 
     adapted_download: List[str] = []
-    current_episode = ""
+    current_header = ""
     current_resolution = ""
     for raw in download_lines:
         s = raw.strip()
@@ -898,8 +910,8 @@ def adapt_input_format(text: str) -> str:
 
         # Detect block-style episode header:
         # Yumi's.Cell.2021.E01
-        if is_episode_header_line(s):
-            current_episode = s
+        if is_episode_header_line(s) or is_movie_download_header_line(s):
+            current_header = s
             current_resolution = ""
             adapted_download.append(raw)
             continue
@@ -913,8 +925,8 @@ def adapt_input_format(text: str) -> str:
 
         # Convert block-style URL line into BBCode filename line for parser stability
         if s.startswith('http://') or s.startswith('https://'):
-            if current_episode and current_resolution:
-                filename = f"{current_episode}.{current_resolution}.mp4"
+            if current_header and current_resolution:
+                filename = f"{current_header}.{current_resolution}.mp4"
                 adapted_download.append(f"[url={s}][LayarAsia] {filename}[/url]")
             else:
                 adapted_download.append(raw)

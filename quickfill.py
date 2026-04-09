@@ -1196,7 +1196,7 @@ def parse_movie_input(
                     hostname = get_embed_hostname(right.strip(), custom_embed_host_rules)
                     add_embed_for_movie(info, re.search(r'src=["\']([^"\']+)["\']', right).group(1), hostname) if re.search(r'src=["\']([^"\']+)["\']', right) else None
                 continue
-            if line.lower().endswith('.mp4') or line.lower().endswith('.mp4.mp4'):
+            if (line.lower().endswith('.mp4') or line.lower().endswith('.mp4.mp4')) and not line.startswith('http') and not line.startswith('[url='):
                 pending_embed_movie_info = parse_movie_filename(f"[LayarAsia] {line}")
                 continue
             if line.startswith('<iframe'):

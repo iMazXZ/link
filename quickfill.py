@@ -491,6 +491,7 @@ def parse_movie_filename(filename: str) -> Optional[Dict]:
     if match:
         title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
         title = re.sub(r'^\[[^\]]+\]\s*', '', title).strip()
+        title = re.sub(r'^\s*-\s*', '', title).strip()
         return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
     
     # Pattern 2: [tag] Title Year.<source>.Resolution.ext (spaces in title)
@@ -499,6 +500,7 @@ def parse_movie_filename(filename: str) -> Optional[Dict]:
     if match:
         title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
         title = re.sub(r'^\[[^\]]+\]\s*', '', title).strip()
+        title = re.sub(r'^\s*-\s*', '', title).strip()
         return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
     
     # Pattern 3: [tag]_Title_Year_<source>_Resolution.ext (underscores)
@@ -507,6 +509,7 @@ def parse_movie_filename(filename: str) -> Optional[Dict]:
     if match:
         title = match.group(1).strip().replace('.', ' ').replace('_', ' ')
         title = re.sub(r'^\[[^\]]+\]\s*', '', title).strip()
+        title = re.sub(r'^\s*-\s*', '', title).strip()
         return {'title': title, 'year': match.group(2), 'resolution': match.group(3) + 'p'}
     
     return None
@@ -900,11 +903,19 @@ def adapt_input_format(text: str) -> str:
     for raw in download_lines:
         s = raw.strip()
         if not s:
+            # New block boundary: avoid carrying previous movie/episode context.
+            current_header = ""
+            current_resolution = ""
             adapted_download.append(raw)
             continue
 
         # Keep already-supported formats untouched
         if s.startswith('[url='):
+            adapted_download.append(raw)
+            continue
+        if s.lower() == 'download link':
+            current_header = ""
+            current_resolution = ""
             adapted_download.append(raw)
             continue
 
@@ -1069,6 +1080,18 @@ def parse_movie_input(
     
     for line in embed_lines:
         line = line.strip()
+        if '|<iframe' in line and '.mp4' in line.lower():
+            left, right = line.split('|', 1)
+            info = parse_movie_filename(f"[LayarAsia] {left.strip()}")
+            iframe_part = right.strip()
+            if info and iframe_part.startswith('<iframe'):
+                key = normalize_movie_title(info['title'])
+                if key not in movies:
+                    display_title = format_movie_display_title(info['title'], info.get('year', ''))
+                    movies[key] = Episode(number='HD', series_name=display_title, year=info.get('year', ''), season=None)
+                hostname = get_embed_hostname(iframe_part, custom_embed_host_rules)
+                movies[key].embeds.append(EmbedData(hostname=hostname, embed=iframe_part))
+            continue
         if line.startswith('<iframe'):
             src_match = re.search(r'src=["\']([^"\']+)["\']', line)
             if src_match:
@@ -1128,9 +1151,61 @@ def parse_movie_input(
         download_lines = lines[download_section_start + 1:]
         # Plain URLs without filename metadata (e.g. Terabox/Upfiles) to map positionally later.
         unassigned_links_by_host: Dict[str, List[str]] = {}
+        pending_embed_movie_info: Optional[Dict] = None
+
+        def ensure_movie_from_info(movie_info: Dict) -> str:
+            key = normalize_movie_title(movie_info['title'])
+            display_title = format_movie_display_title(movie_info['title'], movie_info.get('year', ''))
+            if key not in movies:
+                movies[key] = Episode(number='HD', series_name=display_title, year=movie_info.get('year', ''), season=None)
+            return key
+
+        def add_embed_for_movie(movie_info: Dict, raw_url: str, embed_host: str):
+            key = ensure_movie_from_info(movie_info)
+            embed_src = to_embed_src(raw_url)
+            iframe = f'<iframe src="{embed_src}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>'
+            exists = any(
+                re.search(r'src=["\']([^"\']+)["\']', e.embed, re.IGNORECASE) and
+                re.search(r'src=["\']([^"\']+)["\']', e.embed, re.IGNORECASE).group(1).lower() == embed_src.lower()
+                for e in movies[key].embeds
+            )
+            if not exists:
+                movies[key].embeds.append(EmbedData(hostname=embed_host, embed=iframe))
+            if embed_host == 'FileMoon':
+                d_url = derive_filemoon_download_url(raw_url)
+                if d_url:
+                    res = movie_info.get('resolution', '720p')
+                    if res not in movies[key].downloads:
+                        movies[key].downloads[res] = []
+                    d_exists = any(dl.hosting == 'FileMoon' and dl.url == d_url for dl in movies[key].downloads[res])
+                    if not d_exists:
+                        movies[key].downloads[res].append(DownloadLink(hosting='FileMoon', url=d_url, resolution=res))
+
         for line in download_lines:
             line = line.strip()
             if not line:
+                pending_embed_movie_info = None
+                continue
+            if line.lower() == 'download link':
+                pending_embed_movie_info = None
+                continue
+            if '|<iframe' in line and '.mp4' in line.lower():
+                left, right = line.split('|', 1)
+                info = parse_movie_filename(f"[LayarAsia] {left.strip()}")
+                if info and right.strip().startswith('<iframe'):
+                    hostname = get_embed_hostname(right.strip(), custom_embed_host_rules)
+                    add_embed_for_movie(info, re.search(r'src=["\']([^"\']+)["\']', right).group(1), hostname) if re.search(r'src=["\']([^"\']+)["\']', right) else None
+                continue
+            if line.lower().endswith('.mp4') or line.lower().endswith('.mp4.mp4'):
+                pending_embed_movie_info = parse_movie_filename(f"[LayarAsia] {line}")
+                continue
+            if line.startswith('<iframe'):
+                if pending_embed_movie_info:
+                    src_match = re.search(r'src=["\']([^"\']+)["\']', line, re.IGNORECASE)
+                    if src_match:
+                        hostname = get_embed_hostname(line, custom_embed_host_rules)
+                        add_embed_for_movie(pending_embed_movie_info, src_match.group(1), hostname)
+                pending_embed_movie_info = None
                 continue
             movie_info, url, hosting = None, None, None
             
@@ -1145,16 +1220,35 @@ def parse_movie_input(
                     url, filename = bbcode_match.group(1), bbcode_match.group(2)
                     movie_info = parse_movie_filename(filename)
                     hosting = detect_hosting(url, custom_download_host_rules)
+                    embed_host = detect_embed_host_from_url(url, custom_embed_host_rules)
+                    # Mixed input can include embed-only BBCode after the first Download Link marker.
+                    if movie_info and embed_host != 'Other' and hosting == 'Other':
+                        add_embed_for_movie(movie_info, url, embed_host)
+                        continue
             elif line.startswith('http'):
-                movie_info = parse_movie_from_url(line)
+                raw_url, trailing_label = split_url_and_label(line)
+                label_info = parse_movie_filename(f"[LayarAsia] {trailing_label}") if trailing_label else None
+                embed_host = detect_embed_host_from_url(raw_url, custom_embed_host_rules)
+                hosting = detect_hosting(raw_url, custom_download_host_rules)
+
+                # If this is clearly an embed URL with a movie label, treat as embed line.
+                if label_info and embed_host != 'Other' and (
+                    hosting == 'Other' or re.search(r'/(e|t|embed)/', raw_url, re.IGNORECASE)
+                ):
+                    add_embed_for_movie(label_info, raw_url, embed_host)
+                    continue
+
+                movie_info = parse_movie_from_url(raw_url) or label_info
                 if movie_info:
-                    url, hosting = line, detect_hosting(line, custom_download_host_rules)
+                    url = raw_url
                 else:
                     # Fallback: plain URL tanpa metadata movie ikut mapping positional
                     # per-host selama host bisa dideteksi (bukan "Other").
-                    hosting = detect_hosting(line, custom_download_host_rules)
+                    # Ignore embed endpoints here to avoid cross-movie contamination.
+                    if embed_host != 'Other' and re.search(r'/(e|t|embed)/', raw_url, re.IGNORECASE):
+                        continue
                     if hosting != 'Other':
-                        unassigned_links_by_host.setdefault(hosting, []).append(line)
+                        unassigned_links_by_host.setdefault(hosting, []).append(raw_url)
             
             if movie_info and url and hosting:
                 url = maybe_shorten_url(

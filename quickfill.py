@@ -373,6 +373,7 @@ EMBED_HOST_CONFIG = [
     {'pattern': 'bysetayico.com', 'name': 'FileMoon'},
     {'pattern': 'byselapuix.com', 'name': 'FileMoon'},
     {'pattern': 'nuna.upns.pro', 'name': 'Upnshare'},
+    {'pattern': 'abyssplayer.com', 'name': 'HydraX'},
     {'pattern': 'short.icu', 'name': 'HydraX'},
     {'pattern': 'ok.ru', 'name': 'OKru'},
     {'pattern': 'turbovidhls.com', 'name': 'TurboVid'},
@@ -404,6 +405,7 @@ DEFAULT_DOWNLOAD_HOST_MAP = {
 }
 
 DEFAULT_EMBED_HOST_MAP = {
+    'abyssplayer.com': 'HydraX',
     'short.icu': 'HydraX',
     'ok.ru': 'OKru',
     'turbovidhls.com': 'TurboVid',
